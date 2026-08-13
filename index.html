@@ -163,8 +163,8 @@
             letter-spacing: -0.025em;
         }
         .lead-text {
-            font-size: clamp(1.12rem, 1.7vw, 1.3rem);
-            line-height: 1.92;
+            font-size: clamp(1.08rem, 1.5vw, 1.22rem);
+            line-height: 1.72;
             font-weight: 500;
             color: #374151;
         }
@@ -643,14 +643,23 @@
         };
 
         const WelcomeNoticeStep = ({ settings, onNext }) => (
-            <div className="max-w-4xl mx-auto mt-8 animate-[slideIn_0.45s_ease-out] relative">
+            <div className="max-w-5xl mx-auto mt-3 md:mt-4 animate-[slideIn_0.45s_ease-out] relative">
+                <div className="text-center mb-4">
+                    <div className="inline-flex items-center gap-3 bg-white/95 border border-indigo-100 rounded-full px-5 py-2 shadow-sm mb-4">
+                        <span className="text-2xl">🎓</span>
+                        <span className="text-lg md:text-xl font-extrabold text-indigo-900">מרכז מדע ודעת למצטיינים ומחוננים תל-חי</span>
+                    </div>
+                    <h1 className="display-hebrew text-4xl md:text-5xl text-gray-950 mb-1">טופס רישום לקורסים תוכנית המצטיינים</h1>
+                    <p className="text-gray-600 text-base md:text-lg font-semibold">מערכת בחירת קורסים לשנת תשפ&quot;ו</p>
+                </div>
+
                 <div className="absolute -top-4 right-6 w-3 h-3 rounded-full bg-indigo-400/40 floating-dot"></div>
                 <div className="absolute top-20 left-3 w-2 h-2 rounded-full bg-violet-400/40 floating-dot" style={{animationDelay:'1.2s'}}></div>
-                <div className="relative overflow-hidden rounded-[2rem] border border-indigo-200/80 bg-gradient-to-br from-white via-indigo-50/80 to-purple-50 p-6 md:p-10 shadow-2xl soft-ring">
+                <div className="relative overflow-hidden rounded-[2rem] border border-indigo-200/80 bg-gradient-to-br from-white via-indigo-50/80 to-purple-50 px-6 md:px-10 py-5 md:py-6 shadow-2xl soft-ring">
                     <div className="absolute -top-16 -right-12 w-52 h-52 bg-indigo-300/30 rounded-full blur-3xl pointer-events-none"></div>
                     <div className="absolute -bottom-16 -left-10 w-56 h-56 bg-purple-300/30 rounded-full blur-3xl pointer-events-none"></div>
                     <div className="relative">
-                        <div className="text-center mb-7">
+                        <div className="text-center mb-4">
                             <div className="w-20 h-20 bg-white/90 border border-indigo-100 rounded-3xl shadow-sm flex items-center justify-center mx-auto mb-4 text-4xl">📢</div>
                             <div className="inline-flex items-center gap-2 bg-indigo-100 text-indigo-800 px-4 py-2 rounded-full text-sm font-bold mb-4">
                                 מידע חשוב לפני ההרשמה
@@ -658,9 +667,9 @@
                             <h2 className="display-hebrew text-4xl md:text-6xl text-indigo-950">תלמידות, תלמידים והורים יקרים!</h2>
                         </div>
 
-                        <div className="lead-text readable-copy bg-white/95 backdrop-blur rounded-3xl border border-white shadow-md p-6 md:p-8 text-right">
+                        <div className="lead-text bg-white/95 backdrop-blur rounded-3xl border border-white shadow-md px-6 md:px-8 py-4 md:py-5 text-right max-w-none">
                             <p className="mb-4 font-semibold text-gray-800">מצורף טופס בחירת קורסים לשנת תשפ&quot;ו. אנא בחרו את הקורסים המועדפים עליכם מתוך הקורסים הבאים.</p>
-                            <div className="relative overflow-hidden bg-amber-50 border-2 border-amber-200 rounded-2xl p-5 mb-4">
+                            <div className="relative overflow-hidden bg-amber-50 border-2 border-amber-200 rounded-2xl px-5 py-3 mb-3">
                                 <div className="absolute left-3 top-3 text-3xl opacity-20">⚠️</div>
                                 <p className="text-xl font-extrabold text-amber-950 mb-2">שימו לב</p>
                                 <p className="text-amber-950 font-semibold text-lg">הבחירה היא לשתי מחציות - בכל מחצית בחרו 2 קורסים - אופציה ראשונה ואופציה שנייה.</p>
@@ -668,11 +677,11 @@
                             <p className="font-medium text-gray-800">אין אנו מבטיחים שתשובצו בקורסים שתבחרו כאופציה א - אך אנו נעשה את מירב המאמצים להתחשב בבחירתכם.</p>
                         </div>
 
-                        <div className="mt-7 text-center">
+                        <div className="mt-4 text-center">
                             <button
                                 type="button"
                                 onClick={onNext}
-                                className="premium-btn group bg-gradient-to-l from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-extrabold py-4 px-10 rounded-2xl glow-primary hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 text-xl md:text-2xl"
+                                className="premium-btn group bg-gradient-to-l from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-extrabold py-3.5 px-10 rounded-2xl glow-primary hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 text-xl md:text-2xl"
                             >
                                 <span className="inline-flex items-center gap-3">
                                     קראתי, המשך לבחירת קמפוס
