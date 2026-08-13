@@ -1605,7 +1605,7 @@ const defaultSettings = {
                     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
                         {activeTab === 'dashboard' && <AdminDashboard courses={filteredCoursesByCampus} students={filteredStudentsByCampus} grades={filteredGradesByCampus} />}
                         {activeTab === 'grades' && <AdminGrades grades={filteredGradesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
-                        {activeTab === 'courses' && <AdminCourses grades={filteredGradesByCampus} courses={filteredCoursesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
+                        {activeTab === 'courses' && <AdminCourses grades={filteredGradesByCampus} courses={filteredCoursesByCampus} students={filteredStudentsByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
                         {activeTab === 'students' && <AdminStudents students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} db={dbMethods} />}
                         {activeTab === 'waitlist' && <AdminWaitlist students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} />}
                         {activeTab === 'reports' && <AdminReports students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} settings={settings} campuses={campuses} selectedCampusId={selectedCampus} />}
@@ -2032,7 +2032,7 @@ const defaultSettings = {
             );
         };
 
-        const AdminCourses = ({ grades, courses, db, campusId, campuses }) => {
+        const AdminCourses = ({ grades, courses, students, db, campusId, campuses }) => {
             const [isFormOpen, setIsFormOpen] = useState(false);
             const [editingCourseId, setEditingCourseId] = useState(null);
             const [filterGrade, setFilterGrade] = useState("all");
@@ -2099,6 +2099,145 @@ const defaultSettings = {
                 setDeletingId(null);
             };
 
+            const exportAllCoursesWorkbook = () => {
+                if (typeof XLSX === 'undefined') {
+                    alert('ספריית Excel טרם נטענה');
+                    return;
+                }
+
+                if (!courses.length) {
+                    alert('אין קורסים לייצוא בקמפוס שנבחר.');
+                    return;
+                }
+
+                const wb = XLSX.utils.book_new();
+                const usedSheetNames = new Set();
+
+                const safeSheetName = (name) => {
+                    let base = String(name || 'קורס')
+                        .replace(/[\\\/\?\*\[\]\:]/g, ' ')
+                        .replace(/\s+/g, ' ')
+                        .trim()
+                        .slice(0, 31) || 'קורס';
+
+                    let candidate = base;
+                    let counter = 2;
+                    while (usedSheetNames.has(candidate)) {
+                        const suffix = ` ${counter}`;
+                        candidate = (base.slice(0, 31 - suffix.length) + suffix).trim();
+                        counter++;
+                    }
+                    usedSheetNames.add(candidate);
+                    return candidate;
+                };
+
+                const primaryKeys = [
+                    'semA_1_opt1',
+                    'semA_2_opt1',
+                    'semB_1_opt1',
+                    'semB_2_opt1'
+                ];
+
+                const waitKeys = [
+                    'semA_1_waitlist',
+                    'semA_2_waitlist',
+                    'semB_1_waitlist',
+                    'semB_2_waitlist'
+                ];
+
+                const getRegisteredForCourse = (courseId) => {
+                    return students
+                        .filter(student => primaryKeys.some(key => student[key] === courseId))
+                        .sort((a, b) => {
+                            const last = String(a.lastName || '').localeCompare(String(b.lastName || ''), 'he', { sensitivity: 'base' });
+                            if (last !== 0) return last;
+                            return String(a.firstName || '').localeCompare(String(b.firstName || ''), 'he', { sensitivity: 'base' });
+                        });
+                };
+
+                const getWaitCount = (courseId) =>
+                    students.filter(student => waitKeys.some(key => student[key] === courseId)).length;
+
+                const summaryData = courses.map((course, index) => {
+                    const registered = getRegisteredForCourse(course.id);
+                    const capacity = Number(course.capacity || 0);
+                    return {
+                        '#': index + 1,
+                        'שם הקורס': course.name || '',
+                        'מורה': course.teacherName || '',
+                        'שכבה': getGradeName(course.gradeId),
+                        'מחצית': `מחצית ${course.semester || ''}`,
+                        'שעה / רצועה': course.track || '',
+                        'רשומים': registered.length,
+                        'קיבולת': capacity,
+                        'מקומות פנויים': Math.max(0, capacity - registered.length),
+                        'רשימת המתנה': getWaitCount(course.id)
+                    };
+                });
+
+                const summaryWs = XLSX.utils.json_to_sheet(summaryData);
+                summaryWs['!cols'] = [
+                    { wch: 6 }, { wch: 32 }, { wch: 22 }, { wch: 18 }, { wch: 14 },
+                    { wch: 18 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 14 }
+                ];
+                XLSX.utils.book_append_sheet(wb, summaryWs, 'סיכום');
+
+                courses.forEach(course => {
+                    const registered = getRegisteredForCourse(course.id);
+                    const capacity = Number(course.capacity || 0);
+
+                    const rows = [
+                        ['שם הקורס', course.name || ''],
+                        ['שם המורה', course.teacherName || ''],
+                        ['שכבה', getGradeName(course.gradeId)],
+                        ['מחצית', `מחצית ${course.semester || ''}`],
+                        ['שעה / רצועה', course.track || ''],
+                        ['מספר רשומים', registered.length],
+                        ['קיבולת', capacity],
+                        ['מקומות פנויים', Math.max(0, capacity - registered.length)],
+                        [],
+                        ['#', 'שם פרטי', 'שם משפחה', 'שכבה', 'דוא״ל הורה', 'תאריך הרשמה', 'קוד הרשמה']
+                    ];
+
+                    registered.forEach((student, index) => {
+                        rows.push([
+                            index + 1,
+                            student.firstName || '',
+                            student.lastName || '',
+                            getGradeName(student.gradeId),
+                            student.email || '',
+                            student.date || '',
+                            student.registrationCode || ''
+                        ]);
+                    });
+
+                    if (registered.length === 0) {
+                        rows.push(['', 'אין תלמידים רשומים לקורס זה']);
+                    }
+
+                    const ws = XLSX.utils.aoa_to_sheet(rows);
+                    ws['!cols'] = [
+                        { wch: 7 },
+                        { wch: 18 },
+                        { wch: 20 },
+                        { wch: 18 },
+                        { wch: 30 },
+                        { wch: 22 },
+                        { wch: 24 }
+                    ];
+
+                    const sheetName = safeSheetName(course.name);
+                    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+                });
+
+                const currentCampus = campuses.find(c => c.id === campusId);
+                const campusName = campusId === 'all' ? 'כל_הקמפוסים' : (currentCampus?.name || 'קמפוס');
+                const safeCampus = campusName.replace(/[\\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+                const date = new Date().toLocaleDateString('he-IL').replaceAll('/', '-');
+
+                XLSX.writeFile(wb, `קורסים_ונרשמים_${safeCampus}_${date}.xlsx`);
+            };
+
             const filteredCourses = courses.filter(c => filterGrade === "all" || c.gradeId === filterGrade);
             const getGradeName = (id) => grades.find(g => g.id === id)?.name || "ללא שכבה";
             const availableFormGrades = grades.filter(g => campusId !== 'all' || (g.campusId || 'campus1') === formData.campusId);
@@ -2110,12 +2249,21 @@ const defaultSettings = {
                             <h2 className="text-2xl font-bold text-gray-800">ניהול קורסים</h2>
                             <p className="text-sm text-gray-500">הוספה, עריכה וניהול קיבולת קורסים במערכת</p>
                         </div>
-                        <button
-                            onClick={handleOpenAdd}
-                            className="bg-gradient-to-l from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold px-5 py-2.5 rounded-xl transition-all shadow-md flex items-center gap-2"
-                        >
-                            ➕ הוסף קורס חדש
-                        </button>
+                        <div className="flex flex-wrap gap-2">
+                            <button
+                                onClick={exportAllCoursesWorkbook}
+                                className="bg-gradient-to-l from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold px-5 py-2.5 rounded-xl transition-all shadow-md flex items-center gap-2"
+                                title="מפיק קובץ Excel עם גיליון נפרד לכל קורס ורשימת הנרשמים אליו"
+                            >
+                                📚 Excel – כל הקורסים
+                            </button>
+                            <button
+                                onClick={handleOpenAdd}
+                                className="bg-gradient-to-l from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white font-bold px-5 py-2.5 rounded-xl transition-all shadow-md flex items-center gap-2"
+                            >
+                                ➕ הוסף קורס חדש
+                            </button>
+                        </div>
                     </div>
 
                     <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
