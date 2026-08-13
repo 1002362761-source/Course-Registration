@@ -1280,6 +1280,19 @@
 
         const SuccessStep = ({ details, selections, courses, grades, campuses, settings, registrationCode }) => {
             const receiptRef = useRef(null);
+            const [receiptLogoSrc, setReceiptLogoSrc] = useState("https://gifted.telhai.ac.il/wp-content/uploads/sites/226/2026/05/%D7%9C%D7%95%D7%92%D7%95-%D7%AA%D7%9C-%D7%97%D7%991.png");
+            useEffect(() => {
+                let cancelled = false;
+                fetch("https://gifted.telhai.ac.il/wp-content/uploads/sites/226/2026/05/%D7%9C%D7%95%D7%92%D7%95-%D7%AA%D7%9C-%D7%97%D7%991.png", { mode: 'cors', cache: 'force-cache' })
+                    .then(r => { if (!r.ok) throw new Error('logo'); return r.blob(); })
+                    .then(blob => {
+                        const reader = new FileReader();
+                        reader.onloadend = () => { if (!cancelled && reader.result) setReceiptLogoSrc(reader.result); };
+                        reader.readAsDataURL(blob);
+                    })
+                    .catch(err => console.warn('Logo receipt fallback', err));
+                return () => { cancelled = true; };
+            }, []);
             const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
             const getCourseName = (id) => courses.find(c => c.id === id)?.name || "-";
             const gradeName = grades.find(g => g.id === details.gradeId)?.name || "-";
@@ -1301,6 +1314,16 @@
                 if (!receiptRef.current || !window.html2canvas || !window.jspdf) return;
                 try {
                     setIsGeneratingPdf(true);
+                    const receiptImages = Array.from(receiptRef.current.querySelectorAll('img'));
+                    await Promise.all(receiptImages.map(img => {
+                        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+                        return new Promise(resolve => {
+                            const done = () => resolve();
+                            img.addEventListener('load', done, { once: true });
+                            img.addEventListener('error', done, { once: true });
+                            setTimeout(done, 2500);
+                        });
+                    }));
                     const canvas = await window.html2canvas(receiptRef.current, {
                         scale: 2,
                         backgroundColor: '#ffffff',
@@ -1372,7 +1395,7 @@
 
                     <div ref={receiptRef} dir="rtl" className="bg-white p-8 md:p-10 border border-gray-200 rounded-2xl text-right max-w-4xl mx-auto" style={{ fontFamily: 'Rubik, Arial, sans-serif' }}>
                         <div className="text-center border-b-2 border-indigo-700 pb-5 mb-6">
-                            <img src="https://gifted.telhai.ac.il/wp-content/uploads/sites/226/2026/05/%D7%9C%D7%95%D7%92%D7%95-%D7%AA%D7%9C-%D7%97%D7%991.png" alt="לוגו תל-חי" className="center-logo-print" crossOrigin="anonymous" />
+                            <img src={receiptLogoSrc} alt="לוגו מרכז מדע ודעת תל-חי" className="center-logo-print" />
                             <h1 className="text-3xl font-bold text-indigo-900 mb-2">מרכז מדע ודעת למצטיינים ומחוננים תל-חי</h1>
                             <h2 className="text-xl font-bold text-gray-800">אישור הרשמה ובחירת קורסים</h2>
                             <p className="text-gray-600 mt-2">שנת הלימודים: <strong>{settings.year}</strong> | שנה: <strong>{currentYear}</strong></p>
