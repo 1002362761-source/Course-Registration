@@ -152,6 +152,7 @@
             const [grades, setGrades] = useState([]);
             const [courses, setCourses] = useState([]);
             const [students, setStudents] = useState([]);
+            const [campuses, setCampuses] = useState([]);
 
             useEffect(() => {
                 const setupFirebase = async () => {
@@ -204,8 +205,24 @@
                     setLoading(false);
                 }, (err) => console.error(err));
 
+                // 5. Listen to Campuses
+                const unsubCampuses = db.onSnapshot(db.getPublicDataRef('campuses'), (snapshot) => {
+                    const list = [];
+                    snapshot.forEach(doc => list.push({ id: doc.id, ...doc.data() }));
+                    const legacyKatzrin = list.find(c => c.id === 'campus2' && (c.name === 'קמפוס ב׳' || c.name === 'קמפוס ב'));
+                    if (legacyKatzrin) {
+                        db.setDoc(db.getPublicDocRef('campuses', 'campus2'), { ...legacyKatzrin, name: 'קמפוס קצרין' }, { merge: true });
+                    }
+                    if (list.length === 0) {
+                        db.setDoc(db.getPublicDocRef('campuses', 'campus1'), { name: 'קמפוס תל-חי', active: true });
+                        db.setDoc(db.getPublicDocRef('campuses', 'campus2'), { name: 'קמפוס קצרין', active: true });
+                    } else {
+                        setCampuses(list);
+                    }
+                }, (err) => console.error(err));
+
                 return () => {
-                    unsubSettings(); unsubGrades(); unsubCourses(); unsubStudents();
+                    unsubSettings(); unsubGrades(); unsubCourses(); unsubStudents(); unsubCampuses();
                 };
             }, [user]);
 
@@ -230,6 +247,13 @@
                 },
                 deleteCourse: async (id) => {
                     await window.FirebaseAPI.deleteDoc(window.FirebaseAPI.getPublicDocRef('courses', id));
+                },
+                saveCampus: async (campusData) => {
+                    const id = campusData.id || 'campus_' + Date.now();
+                    await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('campuses', id), { name: campusData.name, active: campusData.active !== false });
+                },
+                deleteCampus: async (id) => {
+                    await window.FirebaseAPI.deleteDoc(window.FirebaseAPI.getPublicDocRef('campuses', id));
                 },
                 registerStudent: async (studentData) => {
                     const id = 'student_' + Date.now();
@@ -304,13 +328,13 @@
                 <div className="min-h-screen relative">
                     {isAdminMode ? (
                         <AdminApp 
-                            settings={settings} grades={grades} courses={courses} students={students}
+                            settings={settings} grades={grades} courses={courses} students={students} campuses={campuses}
                             dbMethods={dbMethods}
                             onLogout={() => setIsAdminMode(false)}
                         />
                     ) : (
                         <StudentApp 
-                            settings={settings} grades={grades} courses={courses} students={students}
+                            settings={settings} grades={grades} courses={courses} students={students} campuses={campuses}
                             dbMethods={dbMethods}
                             onAdminLogin={() => setIsAdminMode(true)}
                         />
@@ -319,12 +343,12 @@
             );
         };
 
-        const StudentApp = ({ settings, grades, courses, students, dbMethods, onAdminLogin }) => {
+        const StudentApp = ({ settings, grades, courses, students, campuses, dbMethods, onAdminLogin }) => {
             const [step, setStep] = useState(0); 
             const [toastMsg, setToastMsg] = useState("");
             
             const [studentDetails, setStudentDetails] = useState({
-                firstName: "", lastName: "", gradeId: grades.length > 0 ? grades[0].id : "", email: ""
+                firstName: "", lastName: "", gradeId: grades.length > 0 ? grades[0].id : "", email: "", campusId: ""
             });
 
             useEffect(() => {
@@ -332,6 +356,13 @@
                     setStudentDetails(prev => ({...prev, gradeId: grades[0].id}));
                 }
             }, [grades]);
+
+            useEffect(() => {
+                const activeCampuses = campuses.filter(c => c.active !== false);
+                if (activeCampuses.length === 1 && !studentDetails.campusId) {
+                    setStudentDetails(prev => ({ ...prev, campusId: activeCampuses[0].id }));
+                }
+            }, [campuses]);
 
             const [selections, setSelections] = useState({
                 semA_1_opt1: null, semA_1_opt2: null,
@@ -387,7 +418,7 @@
                 }
             };
 
-            const canProceedFromDetails = studentDetails.firstName && studentDetails.lastName && studentDetails.email && studentDetails.gradeId;
+            const canProceedFromDetails = studentDetails.firstName && studentDetails.lastName && studentDetails.email && studentDetails.gradeId && studentDetails.campusId;
             
             const checkSlotCompletion = (slotKey) => {
                 return selections[`${slotKey}_opt1`] && selections[`${slotKey}_opt2`] && 
@@ -407,8 +438,8 @@
 
             const renderStepContent = () => {
                 switch(step) {
-                    case 0: return <IntroStep settings={settings} onNext={() => nextStep()} onAdmin={onAdminLogin} />;
-                    case 1: return <DetailsStep details={studentDetails} setDetails={setStudentDetails} grades={grades} onNext={() => nextStep()} canProceed={canProceedFromDetails} />;
+                    case 0: return <IntroStep settings={settings} campuses={campuses} selectedCampusId={studentDetails.campusId} onSelectCampus={(campusId) => { setStudentDetails(prev => ({...prev, campusId})); nextStep(); }} onAdmin={onAdminLogin} />;
+                    case 1: return <DetailsStep details={studentDetails} setDetails={setStudentDetails} grades={grades} campuses={campuses} onNext={() => nextStep()} canProceed={canProceedFromDetails} />;
                     case 2: return <CourseSelectionStep title="מחצית א' - שעה ראשונה" semester="א" track="שעה ראשונה" slotKey="semA_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_1')} />;
                     case 3: return <CourseSelectionStep title="מחצית א' - שעה שנייה" semester="א" track="שעה שנייה" slotKey="semA_2" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("מחצית א' הושלמה!")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_2')} />;
                     case 4: return <CourseSelectionStep title="מחצית ב' - שעה ראשונה" isSemB={true} semester="ב" track="שעה ראשונה" slotKey="semB_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semB_1')} />;
@@ -454,24 +485,103 @@
             );
         };
 
-        const IntroStep = ({ settings, onNext }) => (
-            <div className="glass-panel rounded-2xl p-8 text-center max-w-2xl mx-auto shadow-xl mt-10">
-                <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                    <span className="text-3xl">🎓</span>
-                </div>
-                <h2 className="text-3xl font-bold text-gray-800 mb-6">{settings.welcomeTitle}</h2>
-                <div className="text-lg text-gray-600 mb-8 whitespace-pre-wrap leading-relaxed text-right bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-                    {settings.welcomeText}
-                </div>
-                <button onClick={onNext} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-10 rounded-full shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all text-xl w-full sm:w-auto">
-                    התחל הרשמה
-                </button>
-            </div>
-        );
+        const IntroStep = ({ settings, campuses, selectedCampusId, onSelectCampus }) => {
+            const activeCampuses = campuses.filter(c => c.active !== false);
+            const campusDisplayName = (campus) => {
+                if (campus.id === 'campus1') return 'קמפוס תל-חי';
+                if (campus.id === 'campus2') return 'קמפוס קצרין';
+                return campus.name;
+            };
 
-        const DetailsStep = ({ details, setDetails, grades, onNext, canProceed }) => (
+            return (
+                <div className="max-w-4xl mx-auto mt-8 space-y-6 animate-[slideIn_0.3s_ease-out]">
+                    <div className="glass-panel rounded-3xl p-6 md:p-9 text-center shadow-xl border border-indigo-100">
+                        <div className="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                            <span className="text-4xl">🎓</span>
+                        </div>
+                        <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 mb-3">{settings.welcomeTitle}</h2>
+                        <p className="text-lg text-gray-600">ברוכים הבאים למערכת הרישום של מרכז מדע ודעת למצטיינים ומחוננים</p>
+                    </div>
+
+                    <div className="bg-white rounded-3xl p-6 md:p-9 shadow-lg border border-gray-100">
+                        <div className="text-center mb-7">
+                            <div className="inline-flex items-center gap-2 bg-amber-50 text-amber-800 border border-amber-200 rounded-full px-4 py-2 text-sm font-bold mb-4">
+                                <span>📍</span>
+                                <span>שלב ראשון</span>
+                            </div>
+                            <h3 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-2">באיזה קמפוס תרצו להירשם?</h3>
+                            <p className="text-gray-500">יש לבחור את הקמפוס המתאים. לאחר הבחירה יוצגו רק הקורסים של אותו קמפוס.</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                            {activeCampuses.map((campus, index) => {
+                                const displayName = campusDisplayName(campus);
+                                const isSelected = selectedCampusId === campus.id;
+                                const isTelHai = campus.id === 'campus1' || displayName.includes('תל-חי');
+                                return (
+                                    <button
+                                        key={campus.id}
+                                        type="button"
+                                        onClick={() => onSelectCampus(campus.id)}
+                                        className={`group relative min-h-[190px] rounded-3xl border-2 p-7 text-right transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
+                                            isSelected
+                                                ? 'border-indigo-600 bg-indigo-50 ring-4 ring-indigo-100'
+                                                : isTelHai
+                                                    ? 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white hover:border-indigo-500'
+                                                    : 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white hover:border-emerald-500'
+                                        }`}
+                                    >
+                                        <div className="flex items-start justify-between gap-4">
+                                            <div>
+                                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-3xl mb-5 ${isTelHai ? 'bg-indigo-100' : 'bg-emerald-100'}`}>
+                                                    {isTelHai ? '🏫' : '🌿'}
+                                                </div>
+                                                <div className="text-sm font-bold text-gray-500 mb-1">בחירת קמפוס</div>
+                                                <div className="text-2xl md:text-3xl font-extrabold text-gray-900">{displayName}</div>
+                                                <div className={`mt-4 inline-flex items-center gap-2 font-bold ${isTelHai ? 'text-indigo-700' : 'text-emerald-700'}`}>
+                                                    <span>להרשמה בקמפוס</span>
+                                                    <span aria-hidden="true">←</span>
+                                                </div>
+                                            </div>
+                                            <div className={`w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold ${
+                                                isSelected ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-gray-200 text-gray-300'
+                                            }`}>
+                                                {isSelected ? '✓' : index + 1}
+                                            </div>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {activeCampuses.length === 0 && (
+                            <div className="text-center p-6 bg-red-50 text-red-700 rounded-2xl border border-red-100">
+                                אין כרגע קמפוסים פעילים להרשמה. יש לפנות להנהלה.
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-5 border border-gray-100 text-gray-600 whitespace-pre-wrap leading-relaxed text-sm md:text-base">
+                        {settings.welcomeText}
+                    </div>
+                </div>
+            );
+        };
+
+        const DetailsStep = ({ details, setDetails, grades, campuses, onNext, canProceed }) => (
             <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-4">פרטים אישיים</h2>
+                <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-4">פרטים אישיים</h2>
+                <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl p-4">
+                    <div>
+                        <div className="text-xs font-bold text-indigo-500 mb-1">הקמפוס שנבחר</div>
+                        <div className="text-lg font-extrabold text-indigo-900">
+                            {details.campusId === 'campus1' ? 'קמפוס תל-חי' : details.campusId === 'campus2' ? 'קמפוס קצרין' : (campuses.find(c => c.id === details.campusId)?.name || '')}
+                        </div>
+                    </div>
+                    <button type="button" onClick={() => window.location.reload()} className="text-sm font-bold text-indigo-700 bg-white border border-indigo-200 hover:bg-indigo-100 px-4 py-2 rounded-xl">
+                        שינוי קמפוס
+                    </button>
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">שם פרטי *</label>
@@ -501,7 +611,7 @@
         );
 
         const CourseSelectionStep = ({ title, semester, track, slotKey, courses, students, details, selections, onSelect, onNext, onPrev, canProceed, isSemB = false }) => {
-            const availableCourses = courses.filter(c => c.semester === semester && c.track === track && c.gradeId === details.gradeId);
+            const availableCourses = courses.filter(c => c.semester === semester && c.track === track && c.gradeId === details.gradeId && ((c.campusId || 'campus1') === details.campusId));
             const opt1Id = selections[`${slotKey}_opt1`];
             const opt2Id = selections[`${slotKey}_opt2`];
 
@@ -731,10 +841,11 @@
             );
         };
 
-        const AdminApp = ({ settings, grades, courses, students, dbMethods, onLogout }) => {
+        const AdminApp = ({ settings, grades, courses, students, campuses, dbMethods, onLogout }) => {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [adminCreds, setAdminCreds] = useState(null);
+            const [selectedCampus, setSelectedCampus] = useState("");
 
             const [loginUser, setLoginUser] = useState("");
             const [loginPass, setLoginPass] = useState("");
@@ -819,6 +930,39 @@
                 );
             }
 
+            if (!selectedCampus) {
+                return (
+                    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4" dir="rtl">
+                        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-3xl w-full">
+                            <div className="text-center mb-8">
+                                <div className="text-4xl mb-3">🏫</div>
+                                <h2 className="text-3xl font-bold text-gray-800">בחר קמפוס לניהול</h2>
+                                <p className="text-gray-500 mt-2">כל המסכים והדוחות יוצגו בהתאם לקמפוס שתבחר.</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {campuses.filter(c => c.active !== false).map(c => (
+                                    <button key={c.id} onClick={() => { setSelectedCampus(c.id); setActiveTab('dashboard'); }} className="p-6 rounded-2xl border-2 border-gray-200 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-right">
+                                        <div className="text-2xl mb-2">📍</div>
+                                        <div className="text-xl font-bold text-gray-800">{c.name}</div>
+                                        <div className="text-sm text-gray-500 mt-1">כניסה לניהול הקמפוס</div>
+                                    </button>
+                                ))}
+                                <button onClick={() => { setSelectedCampus('all'); setActiveTab('dashboard'); }} className="p-6 rounded-2xl border-2 border-gray-200 hover:border-emerald-500 hover:bg-emerald-50 transition-all text-right">
+                                    <div className="text-2xl mb-2">🌐</div>
+                                    <div className="text-xl font-bold text-gray-800">כל הקמפוסים</div>
+                                    <div className="text-sm text-gray-500 mt-1">תמונה כוללת ודוחות משולבים</div>
+                                </button>
+                            </div>
+                            <div className="mt-6 text-center"><button onClick={onLogout} className="text-sm text-gray-500 hover:text-gray-700">חזור לאתר</button></div>
+                        </div>
+                    </div>
+                );
+            }
+
+            const currentCampus = campuses.find(c => c.id === selectedCampus);
+            const filteredCoursesByCampus = selectedCampus === 'all' ? courses : courses.filter(c => (c.campusId || 'campus1') === selectedCampus);
+            const filteredStudentsByCampus = selectedCampus === 'all' ? students : students.filter(st => (st.campusId || 'campus1') === selectedCampus);
+
             const tabs = [
                 { id: 'dashboard', label: 'דשבורד' },
                 { id: 'grades', label: 'ניהול שכבות' },
@@ -826,13 +970,18 @@
                 { id: 'students', label: 'תלמידים נרשמים' },
                 { id: 'waitlist', label: 'רשימת המתנה' },
                 { id: 'reports', label: 'דוחות והדפסות' },
+                { id: 'campuses', label: 'ניהול קמפוסים' },
                 { id: 'settings', label: 'הגדרות מערכת' }
             ];
 
             return (
                 <div className="flex flex-col md:flex-row min-h-screen bg-gray-100">
                     <div className="bg-gray-900 text-white md:w-64 flex-shrink-0 no-print">
-                        <div className="p-5 border-b border-gray-800"><h2 className="text-xl font-bold">פאנל ניהול</h2></div>
+                        <div className="p-5 border-b border-gray-800">
+                            <h2 className="text-xl font-bold">פאנל ניהול</h2>
+                            <div className="text-xs text-gray-400 mt-1">{selectedCampus === 'all' ? 'כל הקמפוסים' : (currentCampus?.name || 'קמפוס')}</div>
+                            <button onClick={() => setSelectedCampus('')} className="mt-3 text-xs text-indigo-300 hover:text-white">⇄ החלף קמפוס</button>
+                        </div>
                         <nav className="flex md:flex-col overflow-x-auto p-2 gap-2">
                             {tabs.map(t => (
                                 <button key={t.id} onClick={() => setActiveTab(t.id)} className={`whitespace-nowrap px-4 py-3 rounded-xl text-right transition-colors ${activeTab === t.id ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-800'}`}>
@@ -843,12 +992,13 @@
                         </nav>
                     </div>
                     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
-                        {activeTab === 'dashboard' && <AdminDashboard courses={courses} students={students} grades={grades} />}
+                        {activeTab === 'dashboard' && <AdminDashboard courses={filteredCoursesByCampus} students={filteredStudentsByCampus} grades={grades} />}
                         {activeTab === 'grades' && <AdminGrades grades={grades} db={dbMethods} />}
-                        {activeTab === 'courses' && <AdminCourses grades={grades} courses={courses} db={dbMethods} />}
-                        {activeTab === 'students' && <AdminStudents students={students} courses={courses} grades={grades} db={dbMethods} />}
-                        {activeTab === 'waitlist' && <AdminWaitlist students={students} courses={courses} grades={grades} />}
-                        {activeTab === 'reports' && <AdminReports students={students} courses={courses} grades={grades} settings={settings} />}
+                        {activeTab === 'courses' && <AdminCourses grades={grades} courses={filteredCoursesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
+                        {activeTab === 'students' && <AdminStudents students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} db={dbMethods} />}
+                        {activeTab === 'waitlist' && <AdminWaitlist students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} />}
+                        {activeTab === 'reports' && <AdminReports students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} settings={settings} />}
+                        {activeTab === 'campuses' && <AdminCampuses campuses={campuses} db={dbMethods} />}
                         {activeTab === 'settings' && <AdminSettings settings={settings} db={dbMethods} adminCreds={adminCreds} />}
                     </div>
                 </div>
@@ -1248,7 +1398,7 @@
             );
         };
 
-        const AdminCourses = ({ grades, courses, db }) => {
+        const AdminCourses = ({ grades, courses, db, campusId, campuses }) => {
             const [isFormOpen, setIsFormOpen] = useState(false);
             const [editingCourseId, setEditingCourseId] = useState(null);
             const [filterGrade, setFilterGrade] = useState("all");
@@ -1261,7 +1411,8 @@
                 semester: "א",
                 track: "שעה ראשונה",
                 capacity: 20,
-                registeredCount: 0
+                registeredCount: 0,
+                campusId: campusId === 'all' ? (campuses.find(c => c.active !== false)?.id || 'campus1') : campusId
             };
 
             const [formData, setFormData] = useState(initialFormState);
@@ -1284,7 +1435,8 @@
                     semester: course.semester || "א",
                     track: course.track || "שעה ראשונה",
                     capacity: course.capacity || 20,
-                    registeredCount: course.registeredCount || 0
+                    registeredCount: course.registeredCount || 0,
+                    campusId: course.campusId || 'campus1'
                 });
                 setIsFormOpen(true);
             };
@@ -1365,6 +1517,12 @@
                                         value={formData.description}
                                         onChange={e => setFormData({ ...formData, description: e.target.value })}
                                     ></textarea>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium mb-1">קמפוס *</label>
+                                    <select className="w-full p-2.5 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.campusId || ''} onChange={e => setFormData({ ...formData, campusId: e.target.value })}>
+                                        {campuses.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                    </select>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">שכבת יעד *</label>
@@ -1868,6 +2026,48 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            );
+        };
+
+
+        const AdminCampuses = ({ campuses, db }) => {
+            const [name, setName] = useState('');
+            const [editingId, setEditingId] = useState(null);
+            const [editingName, setEditingName] = useState('');
+            const addCampus = async () => {
+                if (!name.trim()) return;
+                await db.saveCampus({ name: name.trim(), active: true });
+                setName('');
+            };
+            const saveEdit = async (c) => {
+                if (!editingName.trim()) return;
+                await db.saveCampus({ id: c.id, name: editingName.trim(), active: c.active !== false });
+                setEditingId(null);
+            };
+            return (
+                <div className="space-y-6 animate-[slideIn_0.3s_ease-out] max-w-4xl">
+                    <div><h2 className="text-2xl font-bold text-gray-800">ניהול קמפוסים</h2><p className="text-sm text-gray-500">הוספה ועריכה של הקמפוסים במערכת.</p></div>
+                    <div className="bg-white p-5 rounded-2xl border flex flex-col sm:flex-row gap-3">
+                        <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addCampus()} placeholder="שם קמפוס חדש" className="flex-1 p-3 border rounded-xl" />
+                        <button onClick={addCampus} className="bg-indigo-600 text-white font-bold px-5 py-3 rounded-xl">הוסף קמפוס</button>
+                    </div>
+                    <div className="bg-white rounded-2xl border divide-y">
+                        {campuses.map(c => (
+                            <div key={c.id} className="p-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+                                {editingId === c.id ? <input className="p-2 border rounded-xl flex-1" value={editingName} onChange={e => setEditingName(e.target.value)} /> : <div><div className="font-bold text-gray-800">{c.name}</div><div className="text-xs text-gray-400">מזהה: {c.id}</div></div>}
+                                <div className="flex gap-2">
+                                    {editingId === c.id ? <>
+                                        <button onClick={() => saveEdit(c)} className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm">שמור</button>
+                                        <button onClick={() => setEditingId(null)} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">ביטול</button>
+                                    </> : <>
+                                        <button onClick={() => { setEditingId(c.id); setEditingName(c.name); }} className="px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm">ערוך</button>
+                                        <button onClick={() => db.saveCampus({ id: c.id, name: c.name, active: c.active === false })} className={`px-3 py-2 rounded-lg text-sm ${c.active === false ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>{c.active === false ? 'הפעל' : 'השבת'}</button>
+                                    </>}
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
             );
