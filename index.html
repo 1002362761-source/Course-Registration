@@ -235,14 +235,14 @@
                     const id = 'student_' + Date.now();
                     await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('students', id), studentData);
                     
-                    const allSelections = [
-                        studentData.semA_1_opt1, studentData.semA_1_opt2,
-                        studentData.semA_2_opt1, studentData.semA_2_opt2,
-                        studentData.semB_1_opt1, studentData.semB_1_opt2,
-                        studentData.semB_2_opt1, studentData.semB_2_opt2
+                    const primarySelections = [
+                        studentData.semA_1_opt1,
+                        studentData.semA_2_opt1,
+                        studentData.semB_1_opt1,
+                        studentData.semB_2_opt1
                     ].filter(Boolean);
 
-                    const uniqueCourseIds = [...new Set(allSelections)];
+                    const uniqueCourseIds = [...new Set(primarySelections)];
                     
                     await Promise.all(uniqueCourseIds.map(async (courseId) => {
                         const course = courses.find(c => c.id === courseId);
@@ -256,13 +256,13 @@
                 deleteStudent: async (student) => {
                     if (!student?.id) return;
 
-                    const allSelections = [
-                        student.semA_1_opt1, student.semA_1_opt2,
-                        student.semA_2_opt1, student.semA_2_opt2,
-                        student.semB_1_opt1, student.semB_1_opt2,
-                        student.semB_2_opt1, student.semB_2_opt2
+                    const primarySelections = [
+                        student.semA_1_opt1,
+                        student.semA_2_opt1,
+                        student.semB_1_opt1,
+                        student.semB_2_opt1
                     ].filter(Boolean);
-                    const uniqueCourseIds = [...new Set(allSelections)];
+                    const uniqueCourseIds = [...new Set(primarySelections)];
 
                     await Promise.all(uniqueCourseIds.map(async (courseId) => {
                         const course = courses.find(c => c.id === courseId);
@@ -310,7 +310,7 @@
                         />
                     ) : (
                         <StudentApp 
-                            settings={settings} grades={grades} courses={courses} 
+                            settings={settings} grades={grades} courses={courses} students={students}
                             dbMethods={dbMethods}
                             onAdminLogin={() => setIsAdminMode(true)}
                         />
@@ -319,7 +319,7 @@
             );
         };
 
-        const StudentApp = ({ settings, grades, courses, dbMethods, onAdminLogin }) => {
+        const StudentApp = ({ settings, grades, courses, students, dbMethods, onAdminLogin }) => {
             const [step, setStep] = useState(0); 
             const [toastMsg, setToastMsg] = useState("");
             
@@ -338,6 +338,8 @@
                 semA_2_opt1: null, semA_2_opt2: null,
                 semB_1_opt1: null, semB_1_opt2: null,
                 semB_2_opt1: null, semB_2_opt2: null,
+                semA_1_waitlist: null, semA_2_waitlist: null,
+                semB_1_waitlist: null, semB_2_waitlist: null,
             });
 
             const showToast = (msg) => {
@@ -358,14 +360,31 @@
                 scrollToTop();
             };
 
-            const handleCourseSelect = (slotKey, priority, courseId) => {
+            const handleCourseSelect = (slotKey, priority, courseId, isFull = false) => {
                 setSelections(prev => {
                     const newState = { ...prev };
-                    if (priority === 1 && newState[`${slotKey}_opt2`] === courseId) newState[`${slotKey}_opt2`] = null;
+
+                    if (isFull) {
+                        // קורס מלא יכול להיכנס רק כאופציה שנייה וברשימת המתנה
+                        if (newState[`${slotKey}_opt1`] === courseId) newState[`${slotKey}_opt1`] = null;
+                        newState[`${slotKey}_opt2`] = courseId;
+                        newState[`${slotKey}_waitlist`] = courseId;
+                        return newState;
+                    }
+
+                    if (priority === 1 && newState[`${slotKey}_opt2`] === courseId) {
+                        newState[`${slotKey}_opt2`] = null;
+                        if (newState[`${slotKey}_waitlist`] === courseId) newState[`${slotKey}_waitlist`] = null;
+                    }
                     if (priority === 2 && newState[`${slotKey}_opt1`] === courseId) newState[`${slotKey}_opt1`] = null;
                     newState[`${slotKey}_opt${priority}`] = courseId;
+                    if (priority === 2) newState[`${slotKey}_waitlist`] = null;
                     return newState;
                 });
+
+                if (isFull) {
+                    showToast('הקורס מלא. שובצת לרשימת ההמתנה כאופציה שנייה. יש לבחור כעת קורס פנוי כאופציה ראשונה.');
+                }
             };
 
             const canProceedFromDetails = studentDetails.firstName && studentDetails.lastName && studentDetails.email && studentDetails.gradeId;
@@ -390,10 +409,10 @@
                 switch(step) {
                     case 0: return <IntroStep settings={settings} onNext={() => nextStep()} onAdmin={onAdminLogin} />;
                     case 1: return <DetailsStep details={studentDetails} setDetails={setStudentDetails} grades={grades} onNext={() => nextStep()} canProceed={canProceedFromDetails} />;
-                    case 2: return <CourseSelectionStep title="מחצית א' - שעה ראשונה" semester="א" track="שעה ראשונה" slotKey="semA_1" courses={courses} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_1')} />;
-                    case 3: return <CourseSelectionStep title="מחצית א' - שעה שנייה" semester="א" track="שעה שנייה" slotKey="semA_2" courses={courses} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("מחצית א' הושלמה!")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_2')} />;
-                    case 4: return <CourseSelectionStep title="מחצית ב' - שעה ראשונה" isSemB={true} semester="ב" track="שעה ראשונה" slotKey="semB_1" courses={courses} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semB_1')} />;
-                    case 5: return <CourseSelectionStep title="מחצית ב' - שעה שנייה" isSemB={true} semester="ב" track="שעה שנייה" slotKey="semB_2" courses={courses} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep()} onPrev={prevStep} canProceed={checkSlotCompletion('semB_2')} />;
+                    case 2: return <CourseSelectionStep title="מחצית א' - שעה ראשונה" semester="א" track="שעה ראשונה" slotKey="semA_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_1')} />;
+                    case 3: return <CourseSelectionStep title="מחצית א' - שעה שנייה" semester="א" track="שעה שנייה" slotKey="semA_2" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("מחצית א' הושלמה!")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_2')} />;
+                    case 4: return <CourseSelectionStep title="מחצית ב' - שעה ראשונה" isSemB={true} semester="ב" track="שעה ראשונה" slotKey="semB_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semB_1')} />;
+                    case 5: return <CourseSelectionStep title="מחצית ב' - שעה שנייה" isSemB={true} semester="ב" track="שעה שנייה" slotKey="semB_2" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep()} onPrev={prevStep} canProceed={checkSlotCompletion('semB_2')} />;
                     case 6: return <SummaryStep details={studentDetails} selections={selections} courses={courses} grades={grades} onPrev={prevStep} onSubmit={submitRegistration} />;
                     case 7: return <SuccessStep details={studentDetails} selections={selections} courses={courses} grades={grades} settings={settings} />;
                     default: return null;
@@ -481,7 +500,7 @@
             </div>
         );
 
-        const CourseSelectionStep = ({ title, semester, track, slotKey, courses, details, selections, onSelect, onNext, onPrev, canProceed, isSemB = false }) => {
+        const CourseSelectionStep = ({ title, semester, track, slotKey, courses, students, details, selections, onSelect, onNext, onPrev, canProceed, isSemB = false }) => {
             const availableCourses = courses.filter(c => c.semester === semester && c.track === track && c.gradeId === details.gradeId);
             const opt1Id = selections[`${slotKey}_opt1`];
             const opt2Id = selections[`${slotKey}_opt2`];
@@ -498,7 +517,11 @@
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {availableCourses.map(course => {
-                                const isFull = (course.registeredCount || 0) >= course.capacity;
+                                const primaryCount = students.reduce((count, student) => {
+                                    const keys = ['semA_1_opt1', 'semA_2_opt1', 'semB_1_opt1', 'semB_2_opt1'];
+                                    return count + keys.filter(key => student[key] === course.id).length;
+                                }, 0);
+                                const isFull = primaryCount >= Number(course.capacity || 0);
                                 const isOpt1 = opt1Id === course.id;
                                 const isOpt2 = opt2Id === course.id;
                                 
@@ -515,14 +538,22 @@
                                         <div className="flex justify-between items-start mb-2 mt-2">
                                             <h3 className={`text-lg font-bold ${isOpt1 ? 'text-indigo-900' : isOpt2 ? 'text-amber-900' : 'text-gray-800'}`}>{course.name}</h3>
                                             <span className={`text-xs font-semibold px-2 py-1 rounded-full ${isFull ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                                {isFull ? 'מלא' : `פנוי (${course.capacity - (course.registeredCount||0)})`}
+                                                {isFull ? 'מלא · רשימת המתנה' : `פנוי (${Math.max(0, Number(course.capacity || 0) - primaryCount)})`}
                                             </span>
                                         </div>
                                         <p className="text-gray-600 text-sm mb-5 min-h-[40px]">{course.description}</p>
                                         
                                         <div className="flex gap-2">
-                                            <button onClick={() => onSelect(slotKey, 1, course.id)} className={`flex-1 py-2 px-1 rounded-xl text-sm font-semibold transition-colors border ${isOpt1 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>אופציה 1</button>
-                                            <button onClick={() => onSelect(slotKey, 2, course.id)} className={`flex-1 py-2 px-1 rounded-xl text-sm font-semibold transition-colors border ${isOpt2 ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>אופציה 2</button>
+                                            <button
+                                                onClick={() => onSelect(slotKey, 1, course.id, false)}
+                                                disabled={isFull}
+                                                title={isFull ? 'הקורס מלא ולכן אינו זמין כאופציה ראשונה' : ''}
+                                                className={`flex-1 py-2 px-1 rounded-xl text-sm font-semibold transition-colors border ${isFull ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : isOpt1 ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+                                                {isFull ? 'אופציה 1 - לא זמין' : 'אופציה 1'}
+                                            </button>
+                                            <button onClick={() => onSelect(slotKey, 2, course.id, isFull)} className={`flex-1 py-2 px-1 rounded-xl text-sm font-semibold transition-colors border ${isOpt2 ? 'bg-amber-500 text-white border-amber-500' : isFull ? 'bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+                                                {isFull ? 'הצטרפות לרשימת המתנה' : 'אופציה 2'}
+                                            </button>
                                         </div>
                                     </div>
                                 );
@@ -547,7 +578,7 @@
                     <h4 className="font-bold text-gray-700 mb-3 border-b pb-2">{title}</h4>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2"><span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded font-bold">אופציה 1</span><span className="text-gray-800 font-medium">{getCourseName(selections[`${slotKey}_opt1`])}</span></div>
-                        <div className="flex items-center gap-2"><span className="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded font-bold">אופציה 2</span><span className="text-gray-800 font-medium">{getCourseName(selections[`${slotKey}_opt2`])}</span></div>
+                        <div className="flex items-center gap-2"><span className="bg-amber-100 text-amber-700 text-xs px-2 py-1 rounded font-bold">אופציה 2</span><span className="text-gray-800 font-medium">{getCourseName(selections[`${slotKey}_opt2`])}{selections[`${slotKey}_waitlist`] === selections[`${slotKey}_opt2`] ? ' · רשימת המתנה' : ''}</span></div>
                     </div>
                 </div>
             );
@@ -581,11 +612,14 @@
             const currentYear = new Date().getFullYear();
             const registrationDate = new Date().toLocaleDateString('he-IL');
 
+            const waitlistLabel = (slotKey, courseId) =>
+                selections[`${slotKey}_waitlist`] === courseId && courseId ? ' (רשימת המתנה)' : '';
+
             const receiptRows = [
-                ["מחצית א' - שעה ראשונה", getCourseName(selections.semA_1_opt1), getCourseName(selections.semA_1_opt2)],
-                ["מחצית א' - שעה שנייה", getCourseName(selections.semA_2_opt1), getCourseName(selections.semA_2_opt2)],
-                ["מחצית ב' - שעה ראשונה", getCourseName(selections.semB_1_opt1), getCourseName(selections.semB_1_opt2)],
-                ["מחצית ב' - שעה שנייה", getCourseName(selections.semB_2_opt1), getCourseName(selections.semB_2_opt2)]
+                ["מחצית א' - שעה ראשונה", getCourseName(selections.semA_1_opt1), getCourseName(selections.semA_1_opt2) + waitlistLabel('semA_1', selections.semA_1_opt2)],
+                ["מחצית א' - שעה שנייה", getCourseName(selections.semA_2_opt1), getCourseName(selections.semA_2_opt2) + waitlistLabel('semA_2', selections.semA_2_opt2)],
+                ["מחצית ב' - שעה ראשונה", getCourseName(selections.semB_1_opt1), getCourseName(selections.semB_1_opt2) + waitlistLabel('semB_1', selections.semB_1_opt2)],
+                ["מחצית ב' - שעה שנייה", getCourseName(selections.semB_2_opt1), getCourseName(selections.semB_2_opt2) + waitlistLabel('semB_2', selections.semB_2_opt2)]
             ];
 
             const downloadRegistrationPdf = async () => {
@@ -790,6 +824,7 @@
                 { id: 'grades', label: 'ניהול שכבות' },
                 { id: 'courses', label: 'ניהול קורסים' },
                 { id: 'students', label: 'תלמידים נרשמים' },
+                { id: 'waitlist', label: 'רשימת המתנה' },
                 { id: 'reports', label: 'דוחות והדפסות' },
                 { id: 'settings', label: 'הגדרות מערכת' }
             ];
@@ -812,6 +847,7 @@
                         {activeTab === 'grades' && <AdminGrades grades={grades} db={dbMethods} />}
                         {activeTab === 'courses' && <AdminCourses grades={grades} courses={courses} db={dbMethods} />}
                         {activeTab === 'students' && <AdminStudents students={students} courses={courses} grades={grades} db={dbMethods} />}
+                        {activeTab === 'waitlist' && <AdminWaitlist students={students} courses={courses} grades={grades} />}
                         {activeTab === 'reports' && <AdminReports students={students} courses={courses} grades={grades} settings={settings} />}
                         {activeTab === 'settings' && <AdminSettings settings={settings} db={dbMethods} adminCreds={adminCreds} />}
                     </div>
@@ -1460,6 +1496,8 @@
         const AdminStudents = ({ students, courses, grades, db }) => {
             const [gradeFilter, setGradeFilter] = useState('all');
             const [searchTerm, setSearchTerm] = useState('');
+            const [sortBy, setSortBy] = useState('lastName');
+            const [sortDir, setSortDir] = useState('asc');
             const [deletingId, setDeletingId] = useState(null);
             const [expandedId, setExpandedId] = useState(null);
             const [isDeleting, setIsDeleting] = useState(false);
@@ -1470,14 +1508,35 @@
 
             const filteredStudents = useMemo(() => {
                 const term = searchTerm.trim().toLowerCase();
+                const searchableCourseIds = ['semA_1_opt1','semA_1_opt2','semA_2_opt1','semA_2_opt2','semB_1_opt1','semB_1_opt2','semB_2_opt1','semB_2_opt2'];
+
+                const getSortValue = (student) => {
+                    switch (sortBy) {
+                        case 'firstName': return student.firstName || '';
+                        case 'grade': return getGradeName(student.gradeId);
+                        case 'email': return student.email || '';
+                        case 'date': return student.date || '';
+                        case 'lastName':
+                        default: return `${student.lastName || ''} ${student.firstName || ''}`;
+                    }
+                };
+
                 return [...students]
                     .filter(s => gradeFilter === 'all' || s.gradeId === gradeFilter)
                     .filter(s => {
                         if (!term) return true;
-                        return `${s.firstName || ''} ${s.lastName || ''} ${s.email || ''}`.toLowerCase().includes(term);
+                        const courseNames = searchableCourseIds.map(key => getCourseName(s[key])).join(' ');
+                        const haystack = [
+                            s.firstName || '', s.lastName || '', s.email || '', s.date || '',
+                            getGradeName(s.gradeId), courseNames
+                        ].join(' ').toLowerCase();
+                        return haystack.includes(term);
                     })
-                    .sort((a, b) => `${a.lastName || ''} ${a.firstName || ''}`.localeCompare(`${b.lastName || ''} ${b.firstName || ''}`, 'he'));
-            }, [students, gradeFilter, searchTerm]);
+                    .sort((a, b) => {
+                        const comparison = String(getSortValue(a)).localeCompare(String(getSortValue(b)), 'he', { numeric: true, sensitivity: 'base' });
+                        return sortDir === 'asc' ? comparison : -comparison;
+                    });
+            }, [students, gradeFilter, searchTerm, sortBy, sortDir, courses, grades]);
 
             const handleDelete = async (student) => {
                 try {
@@ -1510,7 +1569,7 @@
                                 <div className="font-bold text-gray-700 text-sm mb-2">{title}</div>
                                 <div className="text-xs text-gray-600 space-y-1">
                                     <div><span className="font-bold text-indigo-600">עדיפות 1:</span> {getCourseName(s[`${key}_opt1`])}</div>
-                                    <div><span className="font-bold text-amber-600">עדיפות 2:</span> {getCourseName(s[`${key}_opt2`])}</div>
+                                    <div><span className="font-bold text-amber-600">עדיפות 2:</span> {getCourseName(s[`${key}_opt2`])}{s[`${key}_waitlist`] === s[`${key}_opt2`] ? ' · רשימת המתנה' : ''}</div>
                                 </div>
                             </div>
                         ))}
@@ -1523,7 +1582,7 @@
                     <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4">
                         <div>
                             <h2 className="text-2xl font-bold text-gray-800">תלמידים נרשמים</h2>
-                            <p className="text-sm text-gray-500 mt-1">צפייה, חיפוש, מיון לפי שכבה ומחיקת רישומים קיימים</p>
+                            <p className="text-sm text-gray-500 mt-1">חיפוש חופשי בזמן אמת, סינון ומיון מיידי של תלמידים רשומים</p>
                         </div>
                         <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-2 rounded-xl font-bold text-sm">
                             {filteredStudents.length} תלמידים מוצגים מתוך {students.length}
@@ -1536,16 +1595,17 @@
                         </div>
                     )}
 
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1">חיפוש תלמיד</label>
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                        <div className="md:col-span-2 xl:col-span-1">
+                            <label className="block text-xs font-bold text-gray-500 mb-1">חיפוש חופשי בזמן אמת</label>
                             <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={e => setSearchTerm(e.target.value)}
-                                placeholder="שם פרטי, שם משפחה או דוא״ל..."
+                                placeholder="שם, משפחה, מייל, שכבה, תאריך או קורס..."
                                 className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
                             />
+                            <div className="text-[11px] text-gray-400 mt-1">התוצאות מתעדכנות מיד בזמן ההקלדה.</div>
                         </div>
                         <div>
                             <label className="block text-xs font-bold text-gray-500 mb-1">סינון לפי שכבה</label>
@@ -1559,6 +1619,31 @@
                                     const count = students.filter(s => s.gradeId === g.id).length;
                                     return <option key={g.id} value={g.id}>{g.name} ({count})</option>;
                                 })}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">מיון לפי</label>
+                            <select
+                                value={sortBy}
+                                onChange={e => setSortBy(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-xl bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                                <option value="lastName">שם משפחה</option>
+                                <option value="firstName">שם פרטי</option>
+                                <option value="grade">שכבה</option>
+                                <option value="date">תאריך הרשמה</option>
+                                <option value="email">דוא״ל הורה</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">סדר מיון</label>
+                            <select
+                                value={sortDir}
+                                onChange={e => setSortDir(e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-xl bg-white outline-none focus:ring-2 focus:ring-indigo-500"
+                            >
+                                <option value="asc">עולה א׳ → ת׳</option>
+                                <option value="desc">יורד ת׳ → א׳</option>
                             </select>
                         </div>
                     </div>
@@ -1618,6 +1703,171 @@
                                 ))}
                             </div>
                         )}
+                    </div>
+                </div>
+            );
+        };
+
+        const AdminWaitlist = ({ students, courses, grades }) => {
+            const [gradeFilter, setGradeFilter] = useState('all');
+            const [courseFilter, setCourseFilter] = useState('all');
+            const [searchTerm, setSearchTerm] = useState('');
+
+            const getGradeName = (id) => grades.find(g => g.id === id)?.name || '-';
+            const getCourseName = (id) => courses.find(c => c.id === id)?.name || '-';
+
+            const slotLabels = {
+                semA_1: "מחצית א' · שעה 1",
+                semA_2: "מחצית א' · שעה 2",
+                semB_1: "מחצית ב' · שעה 1",
+                semB_2: "מחצית ב' · שעה 2"
+            };
+
+            const waitlistEntries = useMemo(() => {
+                const rows = [];
+                students.forEach(student => {
+                    Object.keys(slotLabels).forEach(slotKey => {
+                        const courseId = student[`${slotKey}_waitlist`];
+                        if (!courseId) return;
+                        rows.push({
+                            id: `${student.id}_${slotKey}`,
+                            studentId: student.id,
+                            firstName: student.firstName,
+                            lastName: student.lastName,
+                            email: student.email,
+                            gradeId: student.gradeId,
+                            date: student.date,
+                            slotKey,
+                            slotLabel: slotLabels[slotKey],
+                            courseId,
+                            courseName: getCourseName(courseId)
+                        });
+                    });
+                });
+                return rows;
+            }, [students, courses]);
+
+            const filteredEntries = useMemo(() => {
+                const term = searchTerm.trim().toLowerCase();
+                return waitlistEntries.filter(entry => {
+                    const matchesGrade = gradeFilter === 'all' || entry.gradeId === gradeFilter;
+                    const matchesCourse = courseFilter === 'all' || entry.courseId === courseFilter;
+                    const haystack = `${entry.firstName || ''} ${entry.lastName || ''} ${entry.email || ''} ${entry.courseName || ''}`.toLowerCase();
+                    const matchesSearch = !term || haystack.includes(term);
+                    return matchesGrade && matchesCourse && matchesSearch;
+                });
+            }, [waitlistEntries, gradeFilter, courseFilter, searchTerm]);
+
+            const waitlistCourses = useMemo(() => {
+                const ids = [...new Set(waitlistEntries.map(e => e.courseId))];
+                return ids.map(id => ({ id, name: getCourseName(id) })).sort((a,b) => a.name.localeCompare(b.name, 'he'));
+            }, [waitlistEntries, courses]);
+
+            const exportExcel = () => {
+                if (typeof XLSX === 'undefined') return alert('ספריית Excel טרם נטענה');
+                const data = filteredEntries.map((entry, index) => ({
+                    'מספר': index + 1,
+                    'שם פרטי': entry.firstName || '',
+                    'שם משפחה': entry.lastName || '',
+                    'שכבה': getGradeName(entry.gradeId),
+                    'קורס ברשימת המתנה': entry.courseName,
+                    'מחצית / שעה': entry.slotLabel,
+                    'דוא״ל הורה': entry.email || '',
+                    'תאריך הרשמה': entry.date || ''
+                }));
+                const ws = XLSX.utils.json_to_sheet(data);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'רשימת המתנה');
+                XLSX.writeFile(wb, `רשימת_המתנה_${new Date().toLocaleDateString('he-IL').replaceAll('/', '-')}.xlsx`);
+            };
+
+            const printWaitlist = () => window.print();
+
+            return (
+                <div className="space-y-6 animate-[slideIn_0.3s_ease-out]">
+                    <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4 no-print">
+                        <div>
+                            <h2 className="text-2xl font-bold text-gray-800">רשימת המתנה</h2>
+                            <p className="text-sm text-gray-500 mt-1">תלמידים שבחרו קורס מלא ונכנסו אוטומטית לרשימת ההמתנה</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={printWaitlist} className="px-4 py-2 rounded-xl bg-gray-800 text-white font-bold text-sm hover:bg-gray-900">🖨️ הדפסה</button>
+                            <button onClick={exportExcel} className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700">📊 הפקת XLS</button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 no-print">
+                        <div className="bg-white border rounded-2xl p-4">
+                            <div className="text-xs text-gray-500 font-bold">סה״כ ברשימת המתנה</div>
+                            <div className="text-3xl font-extrabold text-amber-600 mt-1">{waitlistEntries.length}</div>
+                        </div>
+                        <div className="bg-white border rounded-2xl p-4">
+                            <div className="text-xs text-gray-500 font-bold">מוצגים לאחר סינון</div>
+                            <div className="text-3xl font-extrabold text-indigo-600 mt-1">{filteredEntries.length}</div>
+                        </div>
+                        <div className="bg-white border rounded-2xl p-4">
+                            <div className="text-xs text-gray-500 font-bold">קורסים עם ממתינים</div>
+                            <div className="text-3xl font-extrabold text-purple-600 mt-1">{waitlistCourses.length}</div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border grid grid-cols-1 md:grid-cols-3 gap-4 no-print">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">חיפוש</label>
+                            <input value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="שם תלמיד, מייל או קורס..." className="w-full p-3 border rounded-xl" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">סינון לפי שכבה</label>
+                            <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)} className="w-full p-3 border rounded-xl bg-white">
+                                <option value="all">כל השכבות</option>
+                                {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">סינון לפי קורס</label>
+                            <select value={courseFilter} onChange={e => setCourseFilter(e.target.value)} className="w-full p-3 border rounded-xl bg-white">
+                                <option value="all">כל הקורסים</option>
+                                {waitlistCourses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="print-area" className="bg-white rounded-2xl border overflow-hidden">
+                        <div className="p-5 border-b text-center hidden print:block">
+                            <h2 className="text-2xl font-bold">מרכז מדע ודעת למצטיינים ומחוננים תל-חי</h2>
+                            <div className="text-lg font-bold mt-1">רשימת המתנה לקורסים</div>
+                            <div className="text-sm text-gray-500">תאריך הפקה: {new Date().toLocaleDateString('he-IL')}</div>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-right border-collapse">
+                                <thead>
+                                    <tr className="bg-gray-100 text-gray-700 text-sm">
+                                        <th className="p-3 border-b">#</th>
+                                        <th className="p-3 border-b">תלמיד/ה</th>
+                                        <th className="p-3 border-b">שכבה</th>
+                                        <th className="p-3 border-b">קורס</th>
+                                        <th className="p-3 border-b">מחצית / שעה</th>
+                                        <th className="p-3 border-b">דוא״ל הורה</th>
+                                        <th className="p-3 border-b">תאריך</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                    {filteredEntries.length === 0 ? (
+                                        <tr><td colSpan="7" className="p-10 text-center text-gray-400">אין תלמידים ברשימת ההמתנה לפי הסינון שנבחר.</td></tr>
+                                    ) : filteredEntries.map((entry, index) => (
+                                        <tr key={entry.id} className="hover:bg-gray-50">
+                                            <td className="p-3 text-gray-500">{index + 1}</td>
+                                            <td className="p-3 font-bold text-gray-800">{entry.firstName} {entry.lastName}</td>
+                                            <td className="p-3">{getGradeName(entry.gradeId)}</td>
+                                            <td className="p-3 font-semibold text-amber-700">{entry.courseName}</td>
+                                            <td className="p-3">{entry.slotLabel}</td>
+                                            <td className="p-3" dir="ltr">{entry.email || '-'}</td>
+                                            <td className="p-3">{entry.date || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             );
