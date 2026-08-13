@@ -183,8 +183,8 @@
                     const g = [];
                     snapshot.forEach(doc => g.push({ id: doc.id, ...doc.data() }));
                     if(g.length === 0) {
-                        const defaultGrades = [{id: "grade1", name: "כיתות ג'-ה'"}, {id: "grade2", name: "כיתות ו'-ט'"}];
-                        defaultGrades.forEach(grade => db.setDoc(db.getPublicDocRef('grades', grade.id), { name: grade.name }));
+                        const defaultGrades = [{id: "grade1", name: "כיתות ג'-ה'", campusId: "campus1"}, {id: "grade2", name: "כיתות ו'-ט'", campusId: "campus1"}];
+                        defaultGrades.forEach(grade => db.setDoc(db.getPublicDocRef('grades', grade.id), { name: grade.name, campusId: grade.campusId }));
                     } else {
                         setGrades(g);
                     }
@@ -231,12 +231,12 @@
                 saveSettings: async (newSettings) => {
                     await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('settings', 'main'), newSettings);
                 },
-                addGrade: async (name) => {
+                addGrade: async (name, campusId) => {
                     const id = 'grade_' + Date.now();
-                    await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('grades', id), { name });
+                    await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('grades', id), { name, campusId });
                 },
-                updateGrade: async (id, name) => {
-                    await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('grades', id), { name }, { merge: true });
+                updateGrade: async (id, name, campusId) => {
+                    await window.FirebaseAPI.setDoc(window.FirebaseAPI.getPublicDocRef('grades', id), { name, ...(campusId ? { campusId } : {}) }, { merge: true });
                 },
                 deleteGrade: async (id) => {
                     await window.FirebaseAPI.deleteDoc(window.FirebaseAPI.getPublicDocRef('grades', id));
@@ -438,7 +438,11 @@
 
             const renderStepContent = () => {
                 switch(step) {
-                    case 0: return <IntroStep settings={settings} campuses={campuses} selectedCampusId={studentDetails.campusId} onSelectCampus={(campusId) => { setStudentDetails(prev => ({...prev, campusId})); nextStep(); }} onAdmin={onAdminLogin} />;
+                    case 0: return <IntroStep settings={settings} campuses={campuses} selectedCampusId={studentDetails.campusId} onSelectCampus={(campusId) => {
+                        const campusGrades = grades.filter(g => (g.campusId || 'campus1') === campusId);
+                        setStudentDetails(prev => ({...prev, campusId, gradeId: campusGrades[0]?.id || ''}));
+                        nextStep();
+                    }} onAdmin={onAdminLogin} />;
                     case 1: return <DetailsStep details={studentDetails} setDetails={setStudentDetails} grades={grades} campuses={campuses} onNext={() => nextStep()} canProceed={canProceedFromDetails} />;
                     case 2: return <CourseSelectionStep title="מחצית א' - שעה ראשונה" semester="א" track="שעה ראשונה" slotKey="semA_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_1')} />;
                     case 3: return <CourseSelectionStep title="מחצית א' - שעה שנייה" semester="א" track="שעה שנייה" slotKey="semA_2" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("מחצית א' הושלמה!")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_2')} />;
@@ -568,7 +572,9 @@
             );
         };
 
-        const DetailsStep = ({ details, setDetails, grades, campuses, onNext, canProceed }) => (
+        const DetailsStep = ({ details, setDetails, grades, campuses, onNext, canProceed }) => {
+            const campusGrades = grades.filter(g => (g.campusId || 'campus1') === details.campusId);
+            return (
             <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
                 <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-4">פרטים אישיים</h2>
                 <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-50 border border-indigo-100 rounded-2xl p-4">
@@ -598,7 +604,9 @@
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">שכבה *</label>
                         <select className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 bg-white" value={details.gradeId} onChange={e => setDetails({...details, gradeId: e.target.value})}>
-                            {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                            {campusGrades.length === 0
+                                ? <option value="">אין שכבות מוגדרות בקמפוס זה</option>
+                                : campusGrades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                         </select>
                     </div>
                 </div>
@@ -608,7 +616,8 @@
                     </button>
                 </div>
             </div>
-        );
+            );
+        };
 
         const CourseSelectionStep = ({ title, semester, track, slotKey, courses, students, details, selections, onSelect, onNext, onPrev, canProceed, isSemB = false }) => {
             const availableCourses = courses.filter(c => c.semester === semester && c.track === track && c.gradeId === details.gradeId && ((c.campusId || 'campus1') === details.campusId));
@@ -962,6 +971,7 @@
             const currentCampus = campuses.find(c => c.id === selectedCampus);
             const filteredCoursesByCampus = selectedCampus === 'all' ? courses : courses.filter(c => (c.campusId || 'campus1') === selectedCampus);
             const filteredStudentsByCampus = selectedCampus === 'all' ? students : students.filter(st => (st.campusId || 'campus1') === selectedCampus);
+            const filteredGradesByCampus = selectedCampus === 'all' ? grades : grades.filter(g => (g.campusId || 'campus1') === selectedCampus);
 
             const tabs = [
                 { id: 'dashboard', label: 'דשבורד' },
@@ -992,12 +1002,12 @@
                         </nav>
                     </div>
                     <div className="flex-1 p-4 md:p-8 overflow-y-auto">
-                        {activeTab === 'dashboard' && <AdminDashboard courses={filteredCoursesByCampus} students={filteredStudentsByCampus} grades={grades} />}
-                        {activeTab === 'grades' && <AdminGrades grades={grades} db={dbMethods} />}
-                        {activeTab === 'courses' && <AdminCourses grades={grades} courses={filteredCoursesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
-                        {activeTab === 'students' && <AdminStudents students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} db={dbMethods} />}
-                        {activeTab === 'waitlist' && <AdminWaitlist students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} />}
-                        {activeTab === 'reports' && <AdminReports students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={grades} settings={settings} />}
+                        {activeTab === 'dashboard' && <AdminDashboard courses={filteredCoursesByCampus} students={filteredStudentsByCampus} grades={filteredGradesByCampus} />}
+                        {activeTab === 'grades' && <AdminGrades grades={filteredGradesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
+                        {activeTab === 'courses' && <AdminCourses grades={filteredGradesByCampus} courses={filteredCoursesByCampus} db={dbMethods} campusId={selectedCampus} campuses={campuses} />}
+                        {activeTab === 'students' && <AdminStudents students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} db={dbMethods} />}
+                        {activeTab === 'waitlist' && <AdminWaitlist students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} />}
+                        {activeTab === 'reports' && <AdminReports students={filteredStudentsByCampus} courses={filteredCoursesByCampus} grades={filteredGradesByCampus} settings={settings} campuses={campuses} selectedCampusId={selectedCampus} />}
                         {activeTab === 'campuses' && <AdminCampuses campuses={campuses} db={dbMethods} />}
                         {activeTab === 'settings' && <AdminSettings settings={settings} db={dbMethods} adminCreds={adminCreds} />}
                     </div>
@@ -1293,22 +1303,25 @@
             );
         };
 
-        const AdminGrades = ({ grades, db }) => {
+        const AdminGrades = ({ grades, db, campusId, campuses }) => {
             const [newGradeName, setNewGradeName] = useState("");
             const [editingGradeId, setEditingGradeId] = useState(null);
             const [editingGradeName, setEditingGradeName] = useState("");
             const [deletingId, setDeletingId] = useState(null);
 
+            const currentCampus = campuses.find(c => c.id === campusId);
+            const canEdit = campusId && campusId !== 'all';
+
             const handleAdd = async (e) => {
                 e.preventDefault();
-                if (!newGradeName.trim()) return;
-                await db.addGrade(newGradeName.trim());
+                if (!canEdit || !newGradeName.trim()) return;
+                await db.addGrade(newGradeName.trim(), campusId);
                 setNewGradeName("");
             };
 
             const handleSaveEdit = async (id) => {
                 if (!editingGradeName.trim()) return;
-                await db.updateGrade(id, editingGradeName.trim());
+                await db.updateGrade(id, editingGradeName.trim(), campusId === 'all' ? null : campusId);
                 setEditingGradeId(null);
                 setEditingGradeName("");
             };
@@ -1319,78 +1332,98 @@
             };
 
             return (
-                <div className="space-y-6 animate-[slideIn_0.3s_ease-out] max-w-3xl">
+                <div className="space-y-6 animate-[slideIn_0.3s_ease-out] max-w-4xl">
                     <div>
                         <h2 className="text-2xl font-bold text-gray-800">ניהול שכבות לימוד</h2>
-                        <p className="text-sm text-gray-500">הוספה, עריכה ומחיקה של שכבות לימוד במערכת</p>
+                        <p className="text-sm text-gray-500">
+                            {campusId === 'all'
+                                ? 'תצוגה כוללת בלבד. כדי להוסיף שכבה יש לבחור קמפוס מסוים.'
+                                : `השכבות במסך זה שייכות רק ל${currentCampus?.name || 'קמפוס שנבחר'}.`}
+                        </p>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                        <h3 className="font-bold text-gray-800 mb-4">הוספת שכבה חדשה</h3>
-                        <form onSubmit={handleAdd} className="flex gap-3">
-                            <input
-                                type="text"
-                                placeholder="שם השכבה (למשל: כיתות ג'-ה')"
-                                className="flex-1 p-3 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
-                                value={newGradeName}
-                                onChange={e => setNewGradeName(e.target.value)}
-                            />
-                            <button
-                                type="submit"
-                                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-md"
-                            >
-                                הוסף שכבה
-                            </button>
-                        </form>
-                    </div>
+                    {canEdit ? (
+                        <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-2xl">
+                            <div className="font-bold text-indigo-900">📍 {currentCampus?.name || 'קמפוס'}</div>
+                            <div className="text-sm text-indigo-700 mt-1">כל שכבה שתתווסף כאן תהיה זמינה רק בקמפוס זה.</div>
+                        </div>
+                    ) : (
+                        <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-amber-900">
+                            כדי להוסיף, לערוך או למחוק שכבות בצורה בטוחה, לחץ על „החלף קמפוס” ובחר קמפוס מסוים.
+                        </div>
+                    )}
+
+                    {canEdit && (
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                            <h3 className="font-bold text-gray-800 mb-4">הוספת שכבה חדשה ל{currentCampus?.name}</h3>
+                            <form onSubmit={handleAdd} className="flex flex-col sm:flex-row gap-3">
+                                <input
+                                    type="text"
+                                    placeholder="שם השכבה (למשל: כיתות ג'-ה')"
+                                    className="flex-1 p-3 border rounded-xl outline-none focus:ring-2 focus:ring-indigo-500"
+                                    value={newGradeName}
+                                    onChange={e => setNewGradeName(e.target.value)}
+                                />
+                                <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-3 rounded-xl transition-all shadow-md">
+                                    הוסף שכבה
+                                </button>
+                            </form>
+                        </div>
+                    )}
 
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                        <div className="p-4 border-b bg-gray-50 font-bold text-gray-700">רשימת שכבות הלימוד</div>
+                        <div className="p-4 border-b bg-gray-50 font-bold text-gray-700">
+                            {campusId === 'all' ? 'כל השכבות מכל הקמפוסים' : `שכבות ${currentCampus?.name || ''}`}
+                        </div>
                         <div className="divide-y">
                             {grades.length === 0 ? (
-                                <div className="p-6 text-center text-gray-400">אין שכבות להצגה</div>
+                                <div className="p-8 text-center text-gray-400">אין שכבות מוגדרות בקמפוס זה.</div>
                             ) : (
-                                grades.map(g => (
-                                    <div key={g.id} className="p-4 flex justify-between items-center hover:bg-gray-50">
-                                        {editingGradeId === g.id ? (
-                                            <div className="flex-1 flex gap-2 ml-4">
-                                                <input
-                                                    type="text"
-                                                    className="p-2 border rounded-xl flex-1 outline-none focus:ring-2 focus:ring-indigo-500"
-                                                    value={editingGradeName}
-                                                    onChange={e => setEditingGradeName(e.target.value)}
-                                                />
-                                                <button onClick={() => handleSaveEdit(g.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">שמור</button>
-                                                <button onClick={() => setEditingGradeId(null)} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm">ביטול</button>
-                                            </div>
-                                        ) : (
-                                            <span className="font-bold text-gray-800 text-lg">{g.name}</span>
-                                        )}
+                                grades.map(g => {
+                                    const gradeCampus = campuses.find(c => c.id === (g.campusId || 'campus1'));
+                                    return (
+                                    <div key={g.id} className="p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 hover:bg-gray-50">
+                                        <div>
+                                            {editingGradeId === g.id ? (
+                                                <div className="flex-1 flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        className="p-2 border rounded-xl flex-1 outline-none focus:ring-2 focus:ring-indigo-500"
+                                                        value={editingGradeName}
+                                                        onChange={e => setEditingGradeName(e.target.value)}
+                                                    />
+                                                    <button onClick={() => handleSaveEdit(g.id)} className="bg-green-600 text-white px-4 py-2 rounded-xl text-sm font-bold">שמור</button>
+                                                    <button onClick={() => setEditingGradeId(null)} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-xl text-sm">ביטול</button>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <span className="font-bold text-gray-800 text-lg">{g.name}</span>
+                                                    {campusId === 'all' && <div className="text-xs text-gray-500 mt-1">{gradeCampus?.name || 'קמפוס תל-חי'}</div>}
+                                                </>
+                                            )}
+                                        </div>
 
-                                        {deletingId === g.id ? (
-                                            <div className="flex items-center gap-2 bg-red-50 p-2 rounded-xl border border-red-200">
-                                                <span className="text-xs text-red-700 font-bold">למחוק שכבה זו?</span>
-                                                <button onClick={() => handleDelete(g.id)} className="bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">אישור</button>
-                                                <button onClick={() => setDeletingId(null)} className="bg-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg">ביטול</button>
-                                            </div>
-                                        ) : editingGradeId !== g.id && (
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => { setEditingGradeId(g.id); setEditingGradeName(g.name); }}
-                                                    className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg"
-                                                >
-                                                    ערוך
-                                                </button>
-                                                <button
-                                                    onClick={() => setDeletingId(g.id)}
-                                                    className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg"
-                                                >
-                                                    מחק
-                                                </button>
-                                            </div>
+                                        {canEdit && (
+                                            deletingId === g.id ? (
+                                                <div className="flex items-center gap-2 bg-red-50 p-2 rounded-xl border border-red-200">
+                                                    <span className="text-xs text-red-700 font-bold">למחוק שכבה זו?</span>
+                                                    <button onClick={() => handleDelete(g.id)} className="bg-red-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg">אישור</button>
+                                                    <button onClick={() => setDeletingId(null)} className="bg-gray-200 text-gray-700 text-xs px-3 py-1.5 rounded-lg">ביטול</button>
+                                                </div>
+                                            ) : editingGradeId !== g.id && (
+                                                <div className="flex gap-2">
+                                                    <button onClick={() => { setEditingGradeId(g.id); setEditingGradeName(g.name); }} className="px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg">
+                                                        ערוך
+                                                    </button>
+                                                    <button onClick={() => setDeletingId(g.id)} className="px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg">
+                                                        מחק
+                                                    </button>
+                                                </div>
+                                            )
                                         )}
                                     </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>
@@ -1465,6 +1498,7 @@
 
             const filteredCourses = courses.filter(c => filterGrade === "all" || c.gradeId === filterGrade);
             const getGradeName = (id) => grades.find(g => g.id === id)?.name || "ללא שכבה";
+            const availableFormGrades = grades.filter(g => campusId !== 'all' || (g.campusId || 'campus1') === formData.campusId);
 
             return (
                 <div className="space-y-6 animate-[slideIn_0.3s_ease-out]">
@@ -1489,7 +1523,7 @@
                             onChange={e => setFilterGrade(e.target.value)}
                         >
                             <option value="all">כל השכבות ({courses.length})</option>
-                            {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                            {availableFormGrades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
                         </select>
                     </div>
 
@@ -1520,7 +1554,11 @@
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium mb-1">קמפוס *</label>
-                                    <select className="w-full p-2.5 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.campusId || ''} onChange={e => setFormData({ ...formData, campusId: e.target.value })}>
+                                    <select className="w-full p-2.5 border rounded-xl bg-white focus:ring-2 focus:ring-indigo-500 outline-none" value={formData.campusId || ''} onChange={e => {
+                                            const nextCampusId = e.target.value;
+                                            const nextGrades = grades.filter(g => (g.campusId || 'campus1') === nextCampusId);
+                                            setFormData({ ...formData, campusId: nextCampusId, gradeId: nextGrades[0]?.id || '' });
+                                        }}>
                                         {campuses.filter(c => c.active !== false).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                     </select>
                                 </div>
@@ -1696,6 +1734,43 @@
                     });
             }, [students, gradeFilter, searchTerm, sortBy, sortDir, courses, grades]);
 
+            const exportStudentsExcel = () => {
+                if (typeof XLSX === 'undefined') return alert('ספריית Excel טרם נטענה');
+                if (filteredStudents.length === 0) return alert('אין תלמידים לייצוא לפי הסינון הנוכחי');
+
+                const data = filteredStudents.map((student, index) => ({
+                    'מספר': index + 1,
+                    'שם פרטי': student.firstName || '',
+                    'שם משפחה': student.lastName || '',
+                    'שכבה': getGradeName(student.gradeId),
+                    'דוא״ל הורה': student.email || '',
+                    'תאריך הרשמה': student.date || '',
+                    "מחצית א׳ שעה 1 - אופציה 1": getCourseName(student.semA_1_opt1),
+                    "מחצית א׳ שעה 1 - אופציה 2": getCourseName(student.semA_1_opt2),
+                    "מחצית א׳ שעה 2 - אופציה 1": getCourseName(student.semA_2_opt1),
+                    "מחצית א׳ שעה 2 - אופציה 2": getCourseName(student.semA_2_opt2),
+                    "מחצית ב׳ שעה 1 - אופציה 1": getCourseName(student.semB_1_opt1),
+                    "מחצית ב׳ שעה 1 - אופציה 2": getCourseName(student.semB_1_opt2),
+                    "מחצית ב׳ שעה 2 - אופציה 1": getCourseName(student.semB_2_opt1),
+                    "מחצית ב׳ שעה 2 - אופציה 2": getCourseName(student.semB_2_opt2)
+                }));
+
+                const ws = XLSX.utils.json_to_sheet(data);
+                ws['!cols'] = [
+                    { wch: 8 }, { wch: 16 }, { wch: 18 }, { wch: 18 }, { wch: 28 }, { wch: 20 },
+                    { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 },
+                    { wch: 28 }, { wch: 28 }, { wch: 28 }, { wch: 28 }
+                ];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'תלמידים נרשמים');
+                XLSX.writeFile(wb, `תלמידים_נרשמים_${new Date().toLocaleDateString('he-IL').replaceAll('/', '-')}.xlsx`);
+            };
+
+            const printStudents = () => {
+                if (filteredStudents.length === 0) return alert('אין תלמידים להדפסה לפי הסינון הנוכחי');
+                window.print();
+            };
+
             const handleDelete = async (student) => {
                 try {
                     setIsDeleting(true);
@@ -1737,13 +1812,29 @@
 
             return (
                 <div className="space-y-6 animate-[slideIn_0.3s_ease-out]">
-                    <div className="flex flex-col lg:flex-row justify-between lg:items-end gap-4">
+                    <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4 no-print">
                         <div>
                             <h2 className="text-2xl font-bold text-gray-800">תלמידים נרשמים</h2>
-                            <p className="text-sm text-gray-500 mt-1">חיפוש חופשי בזמן אמת, סינון ומיון מיידי של תלמידים רשומים</p>
+                            <p className="text-sm text-gray-500 mt-1">חיפוש חופשי בזמן אמת, סינון, מיון, הדפסה וייצוא של תלמידים רשומים</p>
                         </div>
-                        <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-2 rounded-xl font-bold text-sm">
-                            {filteredStudents.length} תלמידים מוצגים מתוך {students.length}
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="bg-indigo-50 border border-indigo-100 text-indigo-700 px-4 py-2 rounded-xl font-bold text-sm">
+                                {filteredStudents.length} תלמידים מוצגים מתוך {students.length}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={printStudents}
+                                className="px-4 py-2 rounded-xl bg-gray-800 text-white font-bold text-sm hover:bg-gray-900"
+                            >
+                                🖨️ הדפסת הרשימה
+                            </button>
+                            <button
+                                type="button"
+                                onClick={exportStudentsExcel}
+                                className="px-4 py-2 rounded-xl bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700"
+                            >
+                                📊 ייצוא ל-Excel
+                            </button>
                         </div>
                     </div>
 
@@ -1753,7 +1844,7 @@
                         </div>
                     )}
 
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 no-print">
                         <div className="md:col-span-2 xl:col-span-1">
                             <label className="block text-xs font-bold text-gray-500 mb-1">חיפוש חופשי בזמן אמת</label>
                             <input
@@ -1806,7 +1897,39 @@
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div id="print-area" className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div className="hidden print:block p-5 border-b text-center">
+                            <h2 className="text-2xl font-bold">מרכז מדע ודעת למצטיינים ומחוננים</h2>
+                            <div className="text-lg font-bold mt-1">רשימת תלמידים נרשמים</div>
+                            <div className="text-sm text-gray-500 mt-1">סה״כ: {filteredStudents.length} תלמידים · תאריך הפקה: {new Date().toLocaleDateString('he-IL')}</div>
+                        </div>
+
+                        <div className="hidden print:block">
+                            <table className="w-full text-right border-collapse text-sm">
+                                <thead>
+                                    <tr className="bg-gray-100">
+                                        <th className="p-2 border">#</th>
+                                        <th className="p-2 border">שם התלמיד/ה</th>
+                                        <th className="p-2 border">שכבה</th>
+                                        <th className="p-2 border">דוא״ל הורה</th>
+                                        <th className="p-2 border">תאריך הרשמה</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredStudents.map((student, index) => (
+                                        <tr key={`print_${student.id}`}>
+                                            <td className="p-2 border">{index + 1}</td>
+                                            <td className="p-2 border font-bold">{student.firstName} {student.lastName}</td>
+                                            <td className="p-2 border">{getGradeName(student.gradeId)}</td>
+                                            <td className="p-2 border" dir="ltr">{student.email || '-'}</td>
+                                            <td className="p-2 border">{student.date || '-'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div className="print:hidden">
                         {filteredStudents.length === 0 ? (
                             <div className="p-12 text-center text-gray-400">לא נמצאו תלמידים התואמים לסינון.</div>
                         ) : (
@@ -1861,6 +1984,7 @@
                                 ))}
                             </div>
                         )}
+                        </div>
                     </div>
                 </div>
             );
@@ -2073,348 +2197,235 @@
             );
         };
 
-        const AdminReports = ({ students, courses, grades, settings }) => {
-            const [reportType, setReportType] = useState("all");
+        const AdminReports = ({ students, courses, grades, settings, campuses, selectedCampusId }) => {
+            const [reportType, setReportType] = useState("summary");
             const [searchTerm, setSearchTerm] = useState("");
             const [selectedGradeFilter, setSelectedGradeFilter] = useState("all");
             const [selectedCourseId, setSelectedCourseId] = useState(courses[0]?.id || "");
+            const [selectedStudentId, setSelectedStudentId] = useState(students[0]?.id || "");
             const [showOpt2, setShowOpt2] = useState(true);
 
-            const filteredStudents = useMemo(() => {
-                return students.filter(s => {
-                    const matchesGrade = selectedGradeFilter === "all" || s.gradeId === selectedGradeFilter;
-                    const matchesSearch = !searchTerm || 
-                        `${s.firstName} ${s.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                        (s.email && s.email.toLowerCase().includes(searchTerm.toLowerCase()));
-                    return matchesGrade && matchesSearch;
-                });
-            }, [students, selectedGradeFilter, searchTerm]);
+            useEffect(() => {
+                if (courses.length && !courses.some(c => c.id === selectedCourseId)) setSelectedCourseId(courses[0].id);
+                if (!courses.length) setSelectedCourseId("");
+            }, [courses]);
+
+            useEffect(() => {
+                if (students.length && !students.some(s => s.id === selectedStudentId)) setSelectedStudentId(students[0].id);
+                if (!students.length) setSelectedStudentId("");
+            }, [students]);
 
             const getCourseName = (id) => courses.find(c => c.id === id)?.name || "-";
             const getGradeName = (id) => grades.find(g => g.id === id)?.name || "-";
+            const currentCampus = campuses?.find(c => c.id === selectedCampusId);
+            const campusTitle = selectedCampusId === 'all' ? 'כל הקמפוסים' : (currentCampus?.name || 'קמפוס');
+
+            const primaryKeys = ['semA_1_opt1','semA_2_opt1','semB_1_opt1','semB_2_opt1'];
+            const secondaryKeys = ['semA_1_opt2','semA_2_opt2','semB_1_opt2','semB_2_opt2'];
+            const waitKeys = ['semA_1_waitlist','semA_2_waitlist','semB_1_waitlist','semB_2_waitlist'];
+
+            const filteredStudents = useMemo(() => students.filter(s => {
+                const matchesGrade = selectedGradeFilter === "all" || s.gradeId === selectedGradeFilter;
+                const term = searchTerm.trim().toLowerCase();
+                const matchesSearch = !term || `${s.firstName || ''} ${s.lastName || ''} ${s.email || ''} ${getGradeName(s.gradeId)}`.toLowerCase().includes(term);
+                return matchesGrade && matchesSearch;
+            }), [students, selectedGradeFilter, searchTerm, grades]);
+
+            const waitlistEntries = useMemo(() => {
+                const labels = {
+                    semA_1: "מחצית א׳ · שעה 1", semA_2: "מחצית א׳ · שעה 2",
+                    semB_1: "מחצית ב׳ · שעה 1", semB_2: "מחצית ב׳ · שעה 2"
+                };
+                const rows = [];
+                students.forEach(s => Object.keys(labels).forEach(slot => {
+                    const courseId = s[`${slot}_waitlist`];
+                    if (courseId) rows.push({
+                        student: s, courseId, courseName: getCourseName(courseId), slotLabel: labels[slot]
+                    });
+                }));
+                return rows;
+            }, [students, courses]);
+
+            const courseStats = useMemo(() => courses.map(c => {
+                const primaryCount = students.filter(s => primaryKeys.some(k => s[k] === c.id)).length;
+                const waitCount = students.filter(s => waitKeys.some(k => s[k] === c.id)).length;
+                const capacity = Number(c.capacity) || 0;
+                const free = Math.max(0, capacity - primaryCount);
+                const percent = capacity ? Math.round((primaryCount / capacity) * 100) : 0;
+                return {...c, primaryCount, waitCount, free, percent, status: capacity && primaryCount >= capacity ? 'מלא' : capacity && percent >= 80 ? 'כמעט מלא' : 'פתוח'};
+            }), [courses, students]);
 
             const selectedCourse = courses.find(c => c.id === selectedCourseId);
+            const selectedStudent = students.find(s => s.id === selectedStudentId);
+
             const courseRoster = useMemo(() => {
                 if (!selectedCourseId) return [];
-                const result = [];
-                students.forEach(s => {
-                    const isOpt1 = [s.semA_1_opt1, s.semA_2_opt1, s.semB_1_opt1, s.semB_2_opt1].includes(selectedCourseId);
-                    const isOpt2 = [s.semA_1_opt2, s.semA_2_opt2, s.semB_1_opt2, s.semB_2_opt2].includes(selectedCourseId);
-                    if (isOpt1 || isOpt2) {
-                        result.push({
-                            student: s,
-                            priority: isOpt1 ? 1 : 2
-                        });
-                    }
-                });
-                return result;
+                return students.map(s => {
+                    const isPrimary = primaryKeys.some(k => s[k] === selectedCourseId);
+                    const isSecondary = secondaryKeys.some(k => s[k] === selectedCourseId);
+                    const isWait = waitKeys.some(k => s[k] === selectedCourseId);
+                    if (!isPrimary && !isSecondary && !isWait) return null;
+                    return {student:s, priority:isPrimary ? 1 : 2, waitlist:isWait};
+                }).filter(Boolean);
             }, [selectedCourseId, students]);
 
-            const exportToExcel = () => {
+            const exceptions = useMemo(() => {
+                const rows = [];
+                students.forEach(s => {
+                    const missing = primaryKeys.filter(k => !s[k]).length;
+                    const waits = waitKeys.filter(k => !!s[k]).length;
+                    if (missing) rows.push({type:'בחירה חסרה', student:s, detail:`חסרות ${missing} בחירות בעדיפות ראשונה`});
+                    if (!s.email) rows.push({type:'מייל חסר', student:s, detail:'לא הוזן דוא״ל הורה'});
+                    if (waits > 1) rows.push({type:'מספר רשימות המתנה', student:s, detail:`התלמיד/ה נמצא/ת ב-${waits} רשימות המתנה`});
+                });
+                courses.filter(c => !students.some(s => primaryKeys.some(k => s[k] === c.id))).forEach(c => rows.push({type:'קורס ללא נרשמים', course:c, detail:c.name}));
+                return rows;
+            }, [students, courses]);
+
+            const summary = useMemo(() => ({
+                students: students.length,
+                grades: grades.length,
+                courses: courses.length,
+                full: courseStats.filter(c => c.status === 'מלא').length,
+                waitStudents: new Set(waitlistEntries.map(e => e.student.id)).size,
+                waitEntries: waitlistEntries.length,
+                freeSeats: courseStats.reduce((sum,c) => sum + c.free, 0),
+                avgOccupancy: courseStats.length ? Math.round(courseStats.reduce((sum,c) => sum + Math.min(c.percent,100),0) / courseStats.length) : 0
+            }), [students, grades, courses, courseStats, waitlistEntries]);
+
+            const safeFile = (s) => String(s || '').replace(/[\\/:*?"<>|]/g,'_').replace(/\s+/g,'_');
+
+            const exportWorkbook = () => {
                 if (typeof XLSX === 'undefined') return alert("ספריית Excel טרם נטענה");
-                let exportData = [];
-                let fileName = "דוח_מערכת";
-
-                if (reportType === "all") {
-                    fileName = "דוח_נרשמים_כולל";
-                    exportData = filteredStudents.map(s => ({
-                        "תאריך הרשמה": s.date || "",
-                        "שם פרטי": s.firstName,
-                        "שם משפחה": s.lastName,
-                        "דוא\"ל הורה": s.email,
-                        "שכבה": getGradeName(s.gradeId),
-                        "מחצית א - שעה 1 (עדיפות 1)": getCourseName(s.semA_1_opt1),
-                        "מחצית א - שעה 1 (עדיפות 2)": getCourseName(s.semA_1_opt2),
-                        "מחצית א - שעה 2 (עדיפות 1)": getCourseName(s.semA_2_opt1),
-                        "מחצית א - שעה 2 (עדיפות 2)": getCourseName(s.semA_2_opt2),
-                        "מחצית ב - שעה 1 (עדיפות 1)": getCourseName(s.semB_1_opt1),
-                        "מחצית ב - שעה 1 (עדיפות 2)": getCourseName(s.semB_1_opt2),
-                        "מחצית ב - שעה 2 (עדיפות 1)": getCourseName(s.semB_2_opt1),
-                        "מחצית ב - שעה 2 (עדיפות 2)": getCourseName(s.semB_2_opt2),
-                    }));
-                } else if (reportType === "course_roster" && selectedCourse) {
-                    fileName = `דף_נוכחות_${selectedCourse.name.replace(/\s+/g, '_')}`;
-                    exportData = courseRoster.map(item => ({
-                        "שם תלמיד": `${item.student.firstName} ${item.student.lastName}`,
-                        "שכבה": getGradeName(item.student.gradeId),
-                        "מייל הורה": item.student.email,
-                        "עדיפות בחירה": item.priority === 1 ? "עדיפות ראשונה" : "עדיפות שנייה",
-                        "תאריך הרשמה": item.student.date || ""
-                    }));
-                } else if (reportType === "occupancy") {
-                    fileName = "דוח_תפוסת_קורסים";
-                    exportData = courses.map(c => ({
-                        "שם הקורס": c.name,
-                        "שכבה": getGradeName(c.gradeId),
-                        "מחצית": c.semester,
-                        "שעה": c.track,
-                        "רשומים": c.registeredCount || 0,
-                        "קיבולת": c.capacity,
-                        "מקומות פנויים": Math.max(0, c.capacity - (c.registeredCount || 0)),
-                        "סטטוס": (c.registeredCount || 0) >= c.capacity ? "מלא" : "פתוח"
-                    }));
-                }
-
-                const ws = XLSX.utils.json_to_sheet(exportData);
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "דוח");
-                XLSX.writeFile(wb, `${fileName}_${new Date().toLocaleDateString('he-IL')}.xlsx`);
+                const addSheet = (name, data) => {
+                    const ws = XLSX.utils.json_to_sheet(data);
+                    XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+                };
+
+                addSheet('סיכום', [
+                    {'מדד':'קמפוס','ערך':campusTitle},
+                    {'מדד':'תלמידים נרשמים','ערך':summary.students},
+                    {'מדד':'שכבות','ערך':summary.grades},
+                    {'מדד':'קורסים','ערך':summary.courses},
+                    {'מדד':'קורסים מלאים','ערך':summary.full},
+                    {'מדד':'תלמידים ברשימת המתנה','ערך':summary.waitStudents},
+                    {'מדד':'מקומות פנויים','ערך':summary.freeSeats},
+                    {'מדד':'תפוסה ממוצעת','ערך':`${summary.avgOccupancy}%`}
+                ]);
+                addSheet('תלמידים', filteredStudents.map((s,i)=>({
+                    '#':i+1,'שם פרטי':s.firstName||'','שם משפחה':s.lastName||'','שכבה':getGradeName(s.gradeId),
+                    'דוא״ל הורה':s.email||'','תאריך':s.date||'',
+                    'א-1 עדיפות 1':getCourseName(s.semA_1_opt1),'א-1 עדיפות 2':getCourseName(s.semA_1_opt2),
+                    'א-2 עדיפות 1':getCourseName(s.semA_2_opt1),'א-2 עדיפות 2':getCourseName(s.semA_2_opt2),
+                    'ב-1 עדיפות 1':getCourseName(s.semB_1_opt1),'ב-1 עדיפות 2':getCourseName(s.semB_1_opt2),
+                    'ב-2 עדיפות 1':getCourseName(s.semB_2_opt1),'ב-2 עדיפות 2':getCourseName(s.semB_2_opt2)
+                })));
+                addSheet('תפוסת קורסים', courseStats.map(c=>({
+                    'קורס':c.name,'שכבה':getGradeName(c.gradeId),'מחצית':c.semester,'שעה':c.track,
+                    'רשומים':c.primaryCount,'קיבולת':c.capacity,'פנויים':c.free,'המתנה':c.waitCount,'תפוסה':`${c.percent}%`,'סטטוס':c.status
+                })));
+                addSheet('רשימת המתנה', waitlistEntries.map((e,i)=>({
+                    '#':i+1,'תלמיד/ה':`${e.student.firstName} ${e.student.lastName}`,'שכבה':getGradeName(e.student.gradeId),
+                    'קורס':e.courseName,'מחצית / שעה':e.slotLabel,'דוא״ל הורה':e.student.email||'','תאריך':e.student.date||''
+                })));
+                addSheet('חריגים', exceptions.map((e,i)=>({
+                    '#':i+1,'סוג':e.type,'תלמיד/קורס':e.student ? `${e.student.firstName} ${e.student.lastName}` : e.course?.name || '',
+                    'שכבה':e.student ? getGradeName(e.student.gradeId) : e.course ? getGradeName(e.course.gradeId) : '','פירוט':e.detail
+                })));
+                XLSX.writeFile(wb, `מרכז_דוחות_${safeFile(campusTitle)}_${new Date().toLocaleDateString('he-IL').replaceAll('/','-')}.xlsx`);
             };
 
-            const handlePrint = () => {
-                window.print();
+            const exportCurrentExcel = () => {
+                if (typeof XLSX === 'undefined') return alert("ספריית Excel טרם נטענה");
+                let data=[], name='דוח';
+                if (reportType==='all') { name='נרשמים'; data=filteredStudents.map((s,i)=>({'#':i+1,'שם':`${s.firstName} ${s.lastName}`,'שכבה':getGradeName(s.gradeId),'דוא״ל':s.email||'','תאריך':s.date||''})); }
+                if (reportType==='course_roster') { name='רשימת_קורס'; data=courseRoster.map((x,i)=>({'#':i+1,'שם':`${x.student.firstName} ${x.student.lastName}`,'שכבה':getGradeName(x.student.gradeId),'סטטוס':x.waitlist?'רשימת המתנה':x.priority===1?'עדיפות ראשונה':'עדיפות שנייה','דוא״ל':x.student.email||''})); }
+                if (reportType==='occupancy') { name='תפוסה'; data=courseStats.filter(c=>selectedGradeFilter==='all'||c.gradeId===selectedGradeFilter).map(c=>({'קורס':c.name,'שכבה':getGradeName(c.gradeId),'רשומים':c.primaryCount,'קיבולת':c.capacity,'פנויים':c.free,'המתנה':c.waitCount,'תפוסה':`${c.percent}%`,'סטטוס':c.status})); }
+                if (reportType==='waitlist') { name='רשימת_המתנה'; data=waitlistEntries.map((e,i)=>({'#':i+1,'שם':`${e.student.firstName} ${e.student.lastName}`,'שכבה':getGradeName(e.student.gradeId),'קורס':e.courseName,'מחצית/שעה':e.slotLabel,'דוא״ל':e.student.email||''})); }
+                if (reportType==='exceptions') { name='חריגים'; data=exceptions.map((e,i)=>({'#':i+1,'סוג':e.type,'שם':e.student?`${e.student.firstName} ${e.student.lastName}`:e.course?.name||'','פירוט':e.detail})); }
+                if (reportType==='summary') { name='סיכום_קמפוס'; data=[{'מדד':'תלמידים','ערך':summary.students},{'מדד':'שכבות','ערך':summary.grades},{'מדד':'קורסים','ערך':summary.courses},{'מדד':'קורסים מלאים','ערך':summary.full},{'מדד':'תלמידים בהמתנה','ערך':summary.waitStudents},{'מדד':'מקומות פנויים','ערך':summary.freeSeats},{'מדד':'תפוסה ממוצעת','ערך':`${summary.avgOccupancy}%`}]; }
+                if (reportType==='student' && selectedStudent) { name=`שיבוץ_${selectedStudent.firstName}_${selectedStudent.lastName}`; data=[
+                    {'מחצית / שעה':'מחצית א׳ · שעה 1','עדיפות 1':getCourseName(selectedStudent.semA_1_opt1),'עדיפות 2':getCourseName(selectedStudent.semA_1_opt2)},
+                    {'מחצית / שעה':'מחצית א׳ · שעה 2','עדיפות 1':getCourseName(selectedStudent.semA_2_opt1),'עדיפות 2':getCourseName(selectedStudent.semA_2_opt2)},
+                    {'מחצית / שעה':'מחצית ב׳ · שעה 1','עדיפות 1':getCourseName(selectedStudent.semB_1_opt1),'עדיפות 2':getCourseName(selectedStudent.semB_1_opt2)},
+                    {'מחצית / שעה':'מחצית ב׳ · שעה 2','עדיפות 1':getCourseName(selectedStudent.semB_2_opt1),'עדיפות 2':getCourseName(selectedStudent.semB_2_opt2)}
+                ]; }
+                const ws=XLSX.utils.json_to_sheet(data); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'דוח');
+                XLSX.writeFile(wb,`${safeFile(name)}_${new Date().toLocaleDateString('he-IL').replaceAll('/','-')}.xlsx`);
             };
+
+            const reportLabel = {
+                summary:'סיכום קמפוס', all:'דוח נרשמים לפי שכבה', course_roster:'נרשמים לפי קורס',
+                occupancy:'תפוסת קורסים', waitlist:'רשימת המתנה', student:'דוח שיבוץ תלמיד', exceptions:'דוח חריגים'
+            }[reportType];
+
+            const reportButtons = [
+                ['summary','📈','סיכום קמפוס'],['all','👥','נרשמים / שכבה'],['course_roster','🎓','לפי קורס'],
+                ['occupancy','📊','תפוסת קורסים'],['waitlist','⏳','רשימת המתנה'],['student','📄','שיבוץ תלמיד'],['exceptions','⚠️','חריגים']
+            ];
 
             return (
                 <div className="space-y-6 animate-[slideIn_0.3s_ease-out]">
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+                    <div className="flex flex-col xl:flex-row justify-between xl:items-end gap-4 no-print">
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-800">מרכז דוחות והדפסות</h2>
-                            <p className="text-sm text-gray-500">הפקת דוחות מפורטים, רשימות שמות לקורסים וייצוא נתונים</p>
+                            <h2 className="text-3xl font-extrabold text-gray-900">מרכז דוחות והדפסות</h2>
+                            <p className="text-sm text-gray-500 mt-1">{campusTitle} · דוחות ניהוליים, שיבוצים, תפוסה ורשימות המתנה</p>
                         </div>
-                        <div className="flex gap-2">
-                            <button onClick={exportToExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2">
-                                📊 ייצוא ל-Excel
+                        <div className="flex flex-wrap gap-2">
+                            <button onClick={exportWorkbook} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl">📚 Excel מלא</button>
+                            <button onClick={exportCurrentExcel} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2.5 rounded-xl">📊 Excel הדוח</button>
+                            <button onClick={()=>window.print()} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl">🖨️ הדפסה / PDF</button>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3 no-print">
+                        {reportButtons.map(([id,icon,label])=>(
+                            <button key={id} onClick={()=>setReportType(id)} className={`p-4 rounded-2xl border text-center transition-all ${reportType===id?'bg-indigo-600 border-indigo-600 text-white shadow-lg':'bg-white border-gray-200 text-gray-700 hover:border-indigo-300'}`}>
+                                <div className="text-2xl mb-1">{icon}</div><div className="text-xs font-bold">{label}</div>
                             </button>
-                            <button onClick={handlePrint} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-2">
-                                🖨️ הדפסה
-                            </button>
+                        ))}
+                    </div>
+
+                    {(reportType==='all' || reportType==='occupancy') && (
+                        <div className="bg-white p-4 rounded-2xl border flex flex-col md:flex-row gap-3 no-print">
+                            {reportType==='all' && <input value={searchTerm} onChange={e=>setSearchTerm(e.target.value)} placeholder="חיפוש תלמיד..." className="flex-1 p-3 border rounded-xl" />}
+                            <select value={selectedGradeFilter} onChange={e=>setSelectedGradeFilter(e.target.value)} className="p-3 border rounded-xl bg-white min-w-52">
+                                <option value="all">כל השכבות</option>{grades.map(g=><option key={g.id} value={g.id}>{g.name}</option>)}
+                            </select>
+                            {reportType==='all' && <label className="flex items-center gap-2 px-3"><input type="checkbox" checked={showOpt2} onChange={e=>setShowOpt2(e.target.checked)}/> הצג עדיפות שנייה</label>}
                         </div>
-                    </div>
+                    )}
+                    {reportType==='course_roster' && <div className="bg-white p-4 rounded-2xl border no-print"><select value={selectedCourseId} onChange={e=>setSelectedCourseId(e.target.value)} className="w-full p-3 border rounded-xl bg-white">{courses.map(c=><option key={c.id} value={c.id}>{c.name} · {getGradeName(c.gradeId)} · מחצית {c.semester} · {c.track}</option>)}</select></div>}
+                    {reportType==='student' && <div className="bg-white p-4 rounded-2xl border no-print"><select value={selectedStudentId} onChange={e=>setSelectedStudentId(e.target.value)} className="w-full p-3 border rounded-xl bg-white"><option value="">בחר תלמיד/ה...</option>{[...students].sort((a,b)=>(a.lastName||'').localeCompare(b.lastName||'','he')).map(s=><option key={s.id} value={s.id}>{s.firstName} {s.lastName} · {getGradeName(s.gradeId)}</option>)}</select></div>}
 
-                    <div className="bg-white p-3 rounded-2xl shadow-sm border border-gray-100 flex flex-wrap gap-2 no-print">
-                        <button 
-                            onClick={() => setReportType("all")} 
-                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${reportType === "all" ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                        >
-                            📋 דוח נרשמים כולל
-                        </button>
-                        <button 
-                            onClick={() => setReportType("course_roster")} 
-                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${reportType === "course_roster" ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                        >
-                            👨‍🎓 רשימת שמות לפי קורס
-                        </button>
-                        <button 
-                            onClick={() => setReportType("occupancy")} 
-                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all ${reportType === "occupancy" ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                        >
-                            📊 דוח תפוסת קורסים
-                        </button>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4 no-print items-center justify-between">
-                        {reportType === "all" && (
-                            <>
-                                <input 
-                                    type="text" 
-                                    placeholder="חיפוש לפי שם תלמיד או מייל..." 
-                                    className="flex-1 p-2.5 border rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 w-full"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
-                                <select 
-                                    className="p-2.5 border rounded-xl bg-white text-sm outline-none focus:ring-2 focus:ring-indigo-500 w-full md:w-64"
-                                    value={selectedGradeFilter}
-                                    onChange={e => setSelectedGradeFilter(e.target.value)}
-                                >
-                                    <option value="all">כל השכבות ({students.length})</option>
-                                    {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                                </select>
-                                <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer whitespace-nowrap">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={showOpt2} 
-                                        onChange={e => setShowOpt2(e.target.checked)} 
-                                        className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4"
-                                    />
-                                    הצג עדיפות שנייה
-                                </label>
-                            </>
-                        )}
-
-                        {reportType === "course_roster" && (
-                            <div className="flex flex-col sm:flex-row gap-4 w-full">
-                                <div className="flex-1">
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">בחר קורס להנפקת רשימת תלמידים:</label>
-                                    <select 
-                                        className="w-full p-2.5 border rounded-xl bg-white text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
-                                        value={selectedCourseId}
-                                        onChange={e => setSelectedCourseId(e.target.value)}
-                                    >
-                                        {courses.map(c => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name} ({getGradeName(c.gradeId)} • מחצית {c.semester} • {c.track})
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                        )}
-
-                        {reportType === "occupancy" && (
-                            <div className="flex items-center justify-between w-full">
-                                <p className="text-sm font-medium text-gray-600">סיכום תפוסה וקיבולת לכל הקורסים הפעילים במערכת</p>
-                                <select 
-                                    className="p-2 border rounded-xl bg-white text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-                                    value={selectedGradeFilter}
-                                    onChange={e => setSelectedGradeFilter(e.target.value)}
-                                >
-                                    <option value="all">כל השכבות</option>
-                                    {grades.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-                                </select>
-                            </div>
-                        )}
-                    </div>
-
-                    <div id="print-area" className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-                        <div className="mb-6 border-b pb-4 text-center">
-                            <h1 className="text-2xl font-bold text-gray-900">{settings.schoolName || "מרכז מצוינות"}</h1>
-                            <p className="text-sm text-gray-600 font-medium">
-                                {reportType === "all" && "דוח נרשמים כולל"}
-                                {reportType === "course_roster" && selectedCourse && `רשימת תלמידים - קורס: ${selectedCourse.name}`}
-                                {reportType === "occupancy" && "דוח סטטוס תפוסת קורסים"}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">תאריך הפקה: {new Date().toLocaleDateString('he-IL')} בשעה {new Date().toLocaleTimeString('he-IL')}</p>
+                    <div id="print-area" className="bg-white rounded-2xl border shadow-sm p-5 md:p-7">
+                        <div className="text-center border-b pb-4 mb-5">
+                            <h1 className="text-2xl font-extrabold text-gray-900">{settings.schoolName || 'מרכז מדע ודעת למצטיינים ומחוננים'}</h1>
+                            <div className="font-bold text-indigo-700 mt-1">{campusTitle}</div>
+                            <div className="text-lg font-bold mt-2">{reportLabel}</div>
+                            <div className="text-xs text-gray-400 mt-1">תאריך הפקה: {new Date().toLocaleDateString('he-IL')} · {new Date().toLocaleTimeString('he-IL')}</div>
                         </div>
 
-                        {reportType === "all" && (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-right text-xs md:text-sm border-collapse">
-                                    <thead>
-                                        <tr className="bg-gray-100 text-gray-700 font-bold border-b">
-                                            <th className="p-2.5 border-b">תלמיד/ה</th>
-                                            <th className="p-2.5 border-b">שכבה</th>
-                                            <th className="p-2.5 border-b">מייל הורה</th>
-                                            <th className="p-2.5 border-b">מחצית א (שעה 1)</th>
-                                            <th className="p-2.5 border-b">מחצית א (שעה 2)</th>
-                                            <th className="p-2.5 border-b">מחצית ב (שעה 1)</th>
-                                            <th className="p-2.5 border-b">מחצית ב (שעה 2)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredStudents.length === 0 ? (
-                                            <tr><td colSpan="7" className="p-8 text-center text-gray-500">לא נמצאו נרשמים תואמים.</td></tr>
-                                        ) : (
-                                            filteredStudents.map(s => (
-                                                <tr key={s.id} className="hover:bg-gray-50 border-b">
-                                                    <td className="p-2.5 font-bold text-gray-800">{s.firstName} {s.lastName}</td>
-                                                    <td className="p-2.5">{getGradeName(s.gradeId)}</td>
-                                                    <td className="p-2.5 text-gray-600" dir="ltr">{s.email}</td>
-                                                    <td className="p-2.5">
-                                                        <div className="text-indigo-700 font-semibold">{getCourseName(s.semA_1_opt1)}</div>
-                                                        {showOpt2 && <div className="text-amber-700 text-xs">2: {getCourseName(s.semA_1_opt2)}</div>}
-                                                    </td>
-                                                    <td className="p-2.5">
-                                                        <div className="text-indigo-700 font-semibold">{getCourseName(s.semA_2_opt1)}</div>
-                                                        {showOpt2 && <div className="text-amber-700 text-xs">2: {getCourseName(s.semA_2_opt2)}</div>}
-                                                    </td>
-                                                    <td className="p-2.5">
-                                                        <div className="text-emerald-700 font-semibold">{getCourseName(s.semB_1_opt1)}</div>
-                                                        {showOpt2 && <div className="text-amber-700 text-xs">2: {getCourseName(s.semB_1_opt2)}</div>}
-                                                    </td>
-                                                    <td className="p-2.5">
-                                                        <div className="text-emerald-700 font-semibold">{getCourseName(s.semB_2_opt1)}</div>
-                                                        {showOpt2 && <div className="text-amber-700 text-xs">2: {getCourseName(s.semB_2_opt2)}</div>}
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
+                        {reportType==='summary' && <div>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-7">
+                                {[['תלמידים',summary.students],['שכבות',summary.grades],['קורסים',summary.courses],['קורסים מלאים',summary.full],['תלמידים בהמתנה',summary.waitStudents],['רשומות המתנה',summary.waitEntries],['מקומות פנויים',summary.freeSeats],['תפוסה ממוצעת',`${summary.avgOccupancy}%`]].map(([l,v])=><div key={l} className="border rounded-2xl p-4 text-center"><div className="text-xs text-gray-500 font-bold">{l}</div><div className="text-3xl font-extrabold text-gray-900 mt-1">{v}</div></div>)}
                             </div>
-                        )}
+                            <h3 className="font-bold text-lg mb-3">מצב הקורסים</h3>
+                            <table className="w-full text-right text-sm border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">קורס</th><th className="p-2 border">שכבה</th><th className="p-2 border">רשומים</th><th className="p-2 border">המתנה</th><th className="p-2 border">תפוסה</th><th className="p-2 border">סטטוס</th></tr></thead><tbody>{courseStats.map(c=><tr key={c.id}><td className="p-2 border font-bold">{c.name}</td><td className="p-2 border">{getGradeName(c.gradeId)}</td><td className="p-2 border">{c.primaryCount}/{c.capacity}</td><td className="p-2 border">{c.waitCount}</td><td className="p-2 border">{c.percent}%</td><td className="p-2 border font-bold">{c.status}</td></tr>)}</tbody></table>
+                        </div>}
 
-                        {reportType === "course_roster" && selectedCourse && (
-                            <div>
-                                <div className="bg-gray-50 p-4 rounded-xl border mb-6 flex flex-wrap justify-between items-center text-sm">
-                                    <div>
-                                        <p className="font-bold text-gray-800 text-base">{selectedCourse.name}</p>
-                                        <p className="text-gray-600">שכבה: {getGradeName(selectedCourse.gradeId)} | מחצית {selectedCourse.semester} | {selectedCourse.track}</p>
-                                    </div>
-                                    <div className="text-left">
-                                        <p className="font-bold text-indigo-600">סה"כ רשומים: {courseRoster.length} תלמידים</p>
-                                        <p className="text-xs text-gray-500">קיבולת מקסימלית: {selectedCourse.capacity}</p>
-                                    </div>
-                                </div>
+                        {reportType==='all' && <div className="overflow-x-auto"><table className="w-full text-right text-xs border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">תלמיד/ה</th><th className="p-2 border">שכבה</th><th className="p-2 border">מייל</th><th className="p-2 border">א׳ שעה 1</th><th className="p-2 border">א׳ שעה 2</th><th className="p-2 border">ב׳ שעה 1</th><th className="p-2 border">ב׳ שעה 2</th></tr></thead><tbody>{filteredStudents.map(s=><tr key={s.id}><td className="p-2 border font-bold">{s.firstName} {s.lastName}</td><td className="p-2 border">{getGradeName(s.gradeId)}</td><td className="p-2 border">{s.email||'-'}</td>{['semA_1','semA_2','semB_1','semB_2'].map(k=><td key={k} className="p-2 border"><b>{getCourseName(s[`${k}_opt1`])}</b>{showOpt2&&<div className="text-gray-500">2: {getCourseName(s[`${k}_opt2`])}</div>}</td>)}</tr>)}</tbody></table>{!filteredStudents.length&&<div className="p-8 text-center text-gray-400">אין תלמידים להצגה.</div>}</div>}
 
-                                <table className="w-full text-right text-sm border-collapse">
-                                    <thead>
-                                        <tr className="bg-gray-100 text-gray-700 font-bold border-b">
-                                            <th className="p-3 border-b text-center w-12">#</th>
-                                            <th className="p-3 border-b">שם התלמיד/ה</th>
-                                            <th className="p-3 border-b">שכבה</th>
-                                            <th className="p-3 border-b">דוא"ל הורה</th>
-                                            <th className="p-3 border-b text-center">עדיפות בחירה</th>
-                                            <th className="p-3 border-b text-center no-print">חתימת נוכחות</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {courseRoster.length === 0 ? (
-                                            <tr><td colSpan="6" className="p-8 text-center text-gray-500">אף תלמיד לא בחר בקורס זה עדיין.</td></tr>
-                                        ) : (
-                                            courseRoster.map((item, idx) => (
-                                                <tr key={idx} className="hover:bg-gray-50 border-b">
-                                                    <td className="p-3 text-center text-gray-400 font-medium">{idx + 1}</td>
-                                                    <td className="p-3 font-bold text-gray-800">{item.student.firstName} {item.student.lastName}</td>
-                                                    <td className="p-3 text-gray-600">{getGradeName(item.student.gradeId)}</td>
-                                                    <td className="p-3 text-gray-600" dir="ltr">{item.student.email}</td>
-                                                    <td className="p-3 text-center">
-                                                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${item.priority === 1 ? 'bg-indigo-100 text-indigo-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                            {item.priority === 1 ? 'עדיפות 1' : 'עדיפות 2'}
-                                                        </span>
-                                                    </td>
-                                                    <td className="p-3 border-b text-center border-l border-r w-32 no-print"></td>
-                                                </tr>
-                                            ))
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        {reportType==='course_roster' && <div>{selectedCourse?<><div className="bg-gray-50 border rounded-xl p-4 mb-4"><b>{selectedCourse.name}</b> · {getGradeName(selectedCourse.gradeId)} · מחצית {selectedCourse.semester} · {selectedCourse.track}</div><table className="w-full text-right text-sm border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">#</th><th className="p-2 border">תלמיד/ה</th><th className="p-2 border">שכבה</th><th className="p-2 border">מייל</th><th className="p-2 border">סטטוס</th></tr></thead><tbody>{courseRoster.map((x,i)=><tr key={x.student.id}><td className="p-2 border">{i+1}</td><td className="p-2 border font-bold">{x.student.firstName} {x.student.lastName}</td><td className="p-2 border">{getGradeName(x.student.gradeId)}</td><td className="p-2 border">{x.student.email||'-'}</td><td className="p-2 border">{x.waitlist?'רשימת המתנה':x.priority===1?'עדיפות ראשונה':'עדיפות שנייה'}</td></tr>)}</tbody></table></>:<div className="text-center text-gray-400">אין קורסים.</div>}</div>}
 
-                        {reportType === "occupancy" && (
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-right text-sm border-collapse">
-                                    <thead>
-                                        <tr className="bg-gray-100 text-gray-700 font-bold border-b">
-                                            <th className="p-3 border-b">שם הקורס</th>
-                                            <th className="p-3 border-b">שכבת יעד</th>
-                                            <th className="p-3 border-b">מחצית / שעה</th>
-                                            <th className="p-3 border-b text-center">נרשמו</th>
-                                            <th className="p-3 border-b text-center">קיבולת</th>
-                                            <th className="p-3 border-b text-center">פנוי</th>
-                                            <th className="p-3 border-b text-center">סטטוס</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {courses
-                                            .filter(c => selectedGradeFilter === "all" || c.gradeId === selectedGradeFilter)
-                                            .map(c => {
-                                                const reg = c.registeredCount || 0;
-                                                const isFull = reg >= c.capacity;
-                                                const remaining = Math.max(0, c.capacity - reg);
+                        {reportType==='occupancy' && <div className="overflow-x-auto"><table className="w-full text-right text-sm border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">קורס</th><th className="p-2 border">שכבה</th><th className="p-2 border">מחצית/שעה</th><th className="p-2 border">רשומים</th><th className="p-2 border">קיבולת</th><th className="p-2 border">פנויים</th><th className="p-2 border">המתנה</th><th className="p-2 border">סטטוס</th></tr></thead><tbody>{courseStats.filter(c=>selectedGradeFilter==='all'||c.gradeId===selectedGradeFilter).map(c=><tr key={c.id}><td className="p-2 border font-bold">{c.name}</td><td className="p-2 border">{getGradeName(c.gradeId)}</td><td className="p-2 border">מחצית {c.semester} · {c.track}</td><td className="p-2 border">{c.primaryCount}</td><td className="p-2 border">{c.capacity}</td><td className="p-2 border">{c.free}</td><td className="p-2 border">{c.waitCount}</td><td className="p-2 border font-bold">{c.status}</td></tr>)}</tbody></table></div>}
 
-                                                return (
-                                                    <tr key={c.id} className="hover:bg-gray-50 border-b">
-                                                        <td className="p-3 font-bold text-gray-800">{c.name}</td>
-                                                        <td className="p-3 text-gray-600">{getGradeName(c.gradeId)}</td>
-                                                        <td className="p-3 text-gray-600">מחצית {c.semester} - {c.track}</td>
-                                                        <td className="p-3 text-center font-bold text-indigo-600">{reg}</td>
-                                                        <td className="p-3 text-center text-gray-600">{c.capacity}</td>
-                                                        <td className="p-3 text-center font-bold text-emerald-600">{remaining}</td>
-                                                        <td className="p-3 text-center">
-                                                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${isFull ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                                                                {isFull ? 'מלא' : 'פתוח'}
-                                                            </span>
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        {reportType==='waitlist' && <div className="overflow-x-auto"><table className="w-full text-right text-sm border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">#</th><th className="p-2 border">תלמיד/ה</th><th className="p-2 border">שכבה</th><th className="p-2 border">קורס</th><th className="p-2 border">מחצית/שעה</th><th className="p-2 border">מייל הורה</th></tr></thead><tbody>{waitlistEntries.map((e,i)=><tr key={`${e.student.id}_${e.courseId}_${i}`}><td className="p-2 border">{i+1}</td><td className="p-2 border font-bold">{e.student.firstName} {e.student.lastName}</td><td className="p-2 border">{getGradeName(e.student.gradeId)}</td><td className="p-2 border">{e.courseName}</td><td className="p-2 border">{e.slotLabel}</td><td className="p-2 border">{e.student.email||'-'}</td></tr>)}</tbody></table>{!waitlistEntries.length&&<div className="p-8 text-center text-gray-400">אין תלמידים ברשימת המתנה.</div>}</div>}
+
+                        {reportType==='student' && <div>{selectedStudent?<><div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 border rounded-xl p-4 mb-5"><div><span className="text-xs text-gray-500">תלמיד/ה</span><div className="font-bold">{selectedStudent.firstName} {selectedStudent.lastName}</div></div><div><span className="text-xs text-gray-500">שכבה</span><div className="font-bold">{getGradeName(selectedStudent.gradeId)}</div></div><div><span className="text-xs text-gray-500">דוא״ל הורה</span><div className="font-bold">{selectedStudent.email||'-'}</div></div></div><table className="w-full text-right border-collapse"><thead><tr className="bg-gray-100"><th className="p-3 border">מחצית / שעה</th><th className="p-3 border">עדיפות ראשונה</th><th className="p-3 border">עדיפות שנייה</th><th className="p-3 border">המתנה</th></tr></thead><tbody>{[['מחצית א׳ · שעה 1','semA_1'],['מחצית א׳ · שעה 2','semA_2'],['מחצית ב׳ · שעה 1','semB_1'],['מחצית ב׳ · שעה 2','semB_2']].map(([l,k])=><tr key={k}><td className="p-3 border font-bold">{l}</td><td className="p-3 border">{getCourseName(selectedStudent[`${k}_opt1`])}</td><td className="p-3 border">{getCourseName(selectedStudent[`${k}_opt2`])}</td><td className="p-3 border">{selectedStudent[`${k}_waitlist`]?getCourseName(selectedStudent[`${k}_waitlist`]):'-'}</td></tr>)}</tbody></table></>:<div className="p-8 text-center text-gray-400">בחר תלמיד/ה.</div>}</div>}
+
+                        {reportType==='exceptions' && <div className="overflow-x-auto"><table className="w-full text-right text-sm border-collapse"><thead><tr className="bg-gray-100"><th className="p-2 border">#</th><th className="p-2 border">סוג חריגה</th><th className="p-2 border">תלמיד / קורס</th><th className="p-2 border">שכבה</th><th className="p-2 border">פירוט</th></tr></thead><tbody>{exceptions.map((e,i)=><tr key={i}><td className="p-2 border">{i+1}</td><td className="p-2 border font-bold">{e.type}</td><td className="p-2 border">{e.student?`${e.student.firstName} ${e.student.lastName}`:e.course?.name||'-'}</td><td className="p-2 border">{e.student?getGradeName(e.student.gradeId):e.course?getGradeName(e.course.gradeId):'-'}</td><td className="p-2 border">{e.detail}</td></tr>)}</tbody></table>{!exceptions.length&&<div className="p-8 text-center text-green-700 font-bold">לא נמצאו חריגים.</div>}</div>}
                     </div>
                 </div>
             );
