@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מערכת בחירת קורסים</title>
+    <!-- Navigation fix build: 2026-08-16-v2 -->
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -735,8 +736,8 @@ const defaultSettings = {
             };
 
             const changeCampus = () => {
-                setStep(1);
-                scrollToTop();
+                goToStep(1);
+                showToast('בחרו את הקמפוס הרצוי. הפרטים האישיים יישמרו.');
             };
 
             const handleCourseSelect = (slotKey, priority, courseId, isFull = false) => {
@@ -840,10 +841,17 @@ const defaultSettings = {
             const renderStepContent = () => {
                 switch(step) {
                     case 0: return <WelcomeNoticeStep settings={settings} onNext={() => nextStep()} />;
-                    case 1: return <CampusSelectionStep campuses={campuses} selectedCampusId={studentDetails.campusId} onSelectCampus={(campusId) => {
+                    case 1: return <CampusSelectionStep campuses={campuses} selectedCampusId={studentDetails.campusId} onHome={goHome} onSelectCampus={(campusId) => {
+                        const previousCampusId = studentDetails.campusId;
                         const campusGrades = grades.filter(g => (g.campusId || 'campus1') === campusId);
-                        const campusChanged = Boolean(studentDetails.campusId && studentDetails.campusId !== campusId);
-                        setStudentDetails(prev => ({...prev, campusId, gradeId: campusGrades[0]?.id || ''}));
+                        const campusChanged = Boolean(previousCampusId && previousCampusId !== campusId);
+
+                        setStudentDetails(prev => ({
+                            ...prev,
+                            campusId,
+                            gradeId: campusGrades.some(g => g.id === prev.gradeId) ? prev.gradeId : (campusGrades[0]?.id || '')
+                        }));
+
                         if (campusChanged) {
                             setSelections({
                                 semA_1_opt1: null, semA_1_opt2: null, semA_2_opt1: null, semA_2_opt2: null,
@@ -851,7 +859,10 @@ const defaultSettings = {
                                 semA_1_waitlist: null, semA_2_waitlist: null, semB_1_waitlist: null, semB_2_waitlist: null,
                             });
                             setMaxVisitedStep(2);
-                            showToast('הקמפוס הוחלף. בחירות הקורסים אופסו כדי למנוע ערבוב בין קמפוסים.');
+                            setRegistrationError('');
+                            showToast('הקמפוס הוחלף בהצלחה. הפרטים האישיים נשמרו ובחירות הקורסים אופסו.');
+                        } else {
+                            showToast('הקמפוס נבחר. ממשיכים לפרטי התלמיד.');
                         }
                         goToStep(2);
                     }} />;
@@ -875,12 +886,26 @@ const defaultSettings = {
                             <button onClick={goHome} className="text-xl font-bold text-right hover:text-indigo-100 transition-colors" title="חזרה לדף הבית">
                                 {settings.schoolName}
                             </button>
-                            <div className="flex items-center gap-3 shrink-0">
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                {step > 0 && step < 8 && (
+                                    <button
+                                        type="button"
+                                        onClick={goHome}
+                                        className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-white text-sm font-extrabold transition-colors"
+                                        title="חזרה לדף הבית בלי למחוק את הטיוטה"
+                                    >
+                                        🏠 דף הבית
+                                    </button>
+                                )}
                                 {step > 1 && step < 8 && (
-                                    <>
-                                        <button onClick={changeCampus} className="text-indigo-100 hover:text-white text-sm font-bold">החלפת קמפוס</button>
-                                        <button onClick={goHome} className="text-indigo-100 hover:text-white text-sm font-bold">דף הבית</button>
-                                    </>
+                                    <button
+                                        type="button"
+                                        onClick={changeCampus}
+                                        className="px-3 py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-200/30 text-amber-50 text-sm font-extrabold transition-colors"
+                                        title="בחירת קמפוס אחר"
+                                    >
+                                        🏫 החלפת קמפוס
+                                    </button>
                                 )}
                                 {step <= 1 && (
                                     <button onClick={onAdminLogin} className="text-indigo-200 hover:text-white text-sm flex items-center gap-1">
@@ -990,7 +1015,7 @@ const defaultSettings = {
             </div>
         );
 
-        const CampusSelectionStep = ({ campuses, selectedCampusId, onSelectCampus }) => {
+        const CampusSelectionStep = ({ campuses, selectedCampusId, onSelectCampus, onHome }) => {
             const activeCampuses = campuses.filter(c => c.active !== false);
             const campusDisplayName = (campus) => {
                 if (campus.id === 'campus1') return 'קמפוס תל-חי';
@@ -1000,6 +1025,15 @@ const defaultSettings = {
 
             return (
                 <div className="max-w-4xl mx-auto mt-8 space-y-6 animate-[slideIn_0.45s_ease-out]">
+                    <div className="flex justify-start">
+                        <button
+                            type="button"
+                            onClick={onHome}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 font-extrabold shadow-sm"
+                        >
+                            🏠 חזרה לדף הבית
+                        </button>
+                    </div>
                     <div className="text-center">
                         <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-full px-4 py-2 text-sm font-bold mb-4">
                             📍 שלב שני
@@ -1047,7 +1081,7 @@ const defaultSettings = {
                                             <div className="text-4xl md:text-5xl font-extrabold tracking-tight text-gray-900">{displayName}</div>
                                             <div className="mt-2 text-sm font-semibold text-gray-500">המשך לשכבות ולקורסים של קמפוס זה</div>
                                             <div className={`mt-5 inline-flex items-center gap-2 font-extrabold ${isTelHai ? 'text-indigo-700' : 'text-emerald-700'}`}>
-                                                {isRegistrationOpen ? 'בחרו קמפוס זה' : 'ההרשמה אינה זמינה כרגע'}
+                                                {isRegistrationOpen ? (isSelected ? 'הקמפוס הנוכחי — לחצו להמשך' : 'בחרו קמפוס זה') : 'ההרשמה אינה זמינה כרגע'}
                                                 <span className="transition-transform group-hover:-translate-x-1">←</span>
                                             </div>
                                         </div>
