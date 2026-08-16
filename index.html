@@ -627,6 +627,7 @@ const defaultSettings = {
 
         const StudentApp = ({ settings, grades, courses, students, campuses, dbMethods, onAdminLogin }) => {
             const [step, setStep] = useState(0); 
+            const [maxVisitedStep, setMaxVisitedStep] = useState(0);
             const [toastMsg, setToastMsg] = useState("");
             
             const [studentDetails, setStudentDetails] = useState({
@@ -649,6 +650,7 @@ const defaultSettings = {
                         if (draft?.selections) setSelections(prev => ({ ...prev, ...draft.selections }));
                         if (Number.isInteger(draft?.step) && draft.step >= 0 && draft.step < 8) {
                             setStep(draft.step);
+                            setMaxVisitedStep(Math.max(draft.step, Number.isInteger(draft?.maxVisitedStep) ? draft.maxVisitedStep : draft.step));
                         }
                         setToastMsg('שוחזרה ההרשמה ששמרת במכשיר זה.');
                         setTimeout(() => setToastMsg(""), 3200);
@@ -687,6 +689,7 @@ const defaultSettings = {
                 try {
                     localStorage.setItem(DRAFT_KEY, JSON.stringify({
                         step,
+                        maxVisitedStep,
                         studentDetails,
                         selections,
                         savedAt: new Date().toISOString()
@@ -694,7 +697,7 @@ const defaultSettings = {
                 } catch (err) {
                     console.warn('Draft autosave failed', err);
                 }
-            }, [draftReady, step, studentDetails, selections]);
+            }, [draftReady, step, maxVisitedStep, studentDetails, selections]);
 
             const showToast = (msg) => {
                 setToastMsg(msg);
@@ -703,14 +706,36 @@ const defaultSettings = {
 
             const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
 
+            const goToStep = (targetStep) => {
+                if (targetStep < 0 || targetStep > 8) return;
+                setStep(targetStep);
+                if (targetStep < 8) setMaxVisitedStep(prev => Math.max(prev, targetStep));
+                scrollToTop();
+            };
+
             const nextStep = (customMessage) => {
                 if (customMessage) showToast(customMessage);
-                setStep(s => s + 1);
+                setStep(s => {
+                    const next = s + 1;
+                    if (next < 8) setMaxVisitedStep(prev => Math.max(prev, next));
+                    return next;
+                });
                 scrollToTop();
             };
 
             const prevStep = () => {
-                setStep(s => s - 1);
+                setStep(s => Math.max(0, s - 1));
+                scrollToTop();
+            };
+
+            const goHome = () => {
+                setStep(0);
+                showToast('ההרשמה נשמרה כטיוטה במכשיר זה.');
+                scrollToTop();
+            };
+
+            const changeCampus = () => {
+                setStep(1);
                 scrollToTop();
             };
 
@@ -817,8 +842,18 @@ const defaultSettings = {
                     case 0: return <WelcomeNoticeStep settings={settings} onNext={() => nextStep()} />;
                     case 1: return <CampusSelectionStep campuses={campuses} selectedCampusId={studentDetails.campusId} onSelectCampus={(campusId) => {
                         const campusGrades = grades.filter(g => (g.campusId || 'campus1') === campusId);
+                        const campusChanged = Boolean(studentDetails.campusId && studentDetails.campusId !== campusId);
                         setStudentDetails(prev => ({...prev, campusId, gradeId: campusGrades[0]?.id || ''}));
-                        nextStep();
+                        if (campusChanged) {
+                            setSelections({
+                                semA_1_opt1: null, semA_1_opt2: null, semA_2_opt1: null, semA_2_opt2: null,
+                                semB_1_opt1: null, semB_1_opt2: null, semB_2_opt1: null, semB_2_opt2: null,
+                                semA_1_waitlist: null, semA_2_waitlist: null, semB_1_waitlist: null, semB_2_waitlist: null,
+                            });
+                            setMaxVisitedStep(2);
+                            showToast('הקמפוס הוחלף. בחירות הקורסים אופסו כדי למנוע ערבוב בין קמפוסים.');
+                        }
+                        goToStep(2);
                     }} />;
                     case 2: return <DetailsStep details={studentDetails} setDetails={setStudentDetails} grades={grades} campuses={campuses} onNext={() => nextStep()} canProceed={canProceedFromDetails} />;
                     case 3: return <CourseSelectionStep title="מחצית א' - שעה ראשונה" semester="א" track="שעה ראשונה" slotKey="semA_1" courses={courses} students={students} details={studentDetails} selections={selections} onSelect={handleCourseSelect} onNext={() => nextStep("עוברים לשעה השנייה.")} onPrev={prevStep} canProceed={checkSlotCompletion('semA_1')} />;
@@ -836,13 +871,23 @@ const defaultSettings = {
             return (
                 <div className="pb-20">
                     <header className="bg-gradient-to-l from-indigo-950 via-indigo-900 to-violet-900 text-white p-4 shadow-xl sticky top-0 z-50 border-b border-white/10 backdrop-blur">
-                        <div className="max-w-4xl mx-auto flex justify-between items-center">
-                            <h1 className="text-xl font-bold">{settings.schoolName}</h1>
-                            {step <= 1 && (
-                                <button onClick={onAdminLogin} className="text-indigo-200 hover:text-white text-sm flex items-center gap-1">
-                                    הנהלה
-                                </button>
-                            )}
+                        <div className="max-w-4xl mx-auto flex justify-between items-center gap-3">
+                            <button onClick={goHome} className="text-xl font-bold text-right hover:text-indigo-100 transition-colors" title="חזרה לדף הבית">
+                                {settings.schoolName}
+                            </button>
+                            <div className="flex items-center gap-3 shrink-0">
+                                {step > 1 && step < 8 && (
+                                    <>
+                                        <button onClick={changeCampus} className="text-indigo-100 hover:text-white text-sm font-bold">החלפת קמפוס</button>
+                                        <button onClick={goHome} className="text-indigo-100 hover:text-white text-sm font-bold">דף הבית</button>
+                                    </>
+                                )}
+                                {step <= 1 && (
+                                    <button onClick={onAdminLogin} className="text-indigo-200 hover:text-white text-sm flex items-center gap-1">
+                                        הנהלה
+                                    </button>
+                                )}
+                            </div>
                         </div>
                         {step > 1 && step < 8 && (
                             <div className="max-w-4xl mx-auto mt-4 space-y-2">
@@ -851,18 +896,26 @@ const defaultSettings = {
                                 </div>
                                 <div className="progress-steps">
                                     {[
-                                        {label:'פרטים', min:2, max:2},
-                                        {label:'מחצית א׳', min:3, max:4},
-                                        {label:'מחצית ב׳', min:5, max:6},
-                                        {label:'סיכום', min:7, max:7}
+                                        {label:'פרטים', min:2, max:2, target:2},
+                                        {label:'מחצית א׳', min:3, max:4, target:3},
+                                        {label:'מחצית ב׳', min:5, max:6, target:5},
+                                        {label:'סיכום', min:7, max:7, target:7}
                                     ].map((item, idx) => {
                                         const active = step >= item.min && step <= item.max;
                                         const done = step > item.max;
+                                        const accessible = item.target <= maxVisitedStep;
                                         return (
-                                            <div key={item.label} className={`progress-step ${active ? 'active' : done ? 'done' : ''}`}>
+                                            <button
+                                                key={item.label}
+                                                type="button"
+                                                disabled={!accessible}
+                                                onClick={() => accessible && goToStep(item.target)}
+                                                title={accessible ? `מעבר אל ${item.label}` : 'השלב עדיין לא זמין'}
+                                                className={`progress-step ${active ? 'active' : done ? 'done' : ''} ${accessible ? 'cursor-pointer hover:bg-white/20' : 'cursor-not-allowed opacity-50'}`}
+                                            >
                                                 <span>{done ? '✓' : idx + 1}</span>
                                                 <span>{item.label}</span>
-                                            </div>
+                                            </button>
                                         );
                                     })}
                                 </div>
@@ -1461,6 +1514,21 @@ const defaultSettings = {
             const [loginPass, setLoginPass] = useState("");
             const [loginError, setLoginError] = useState("");
             const [isLoggingIn, setIsLoggingIn] = useState(false);
+            const [rememberPassword, setRememberPassword] = useState(false);
+            const ADMIN_REMEMBER_KEY = 'course_registration_admin_remember_v1';
+
+            useEffect(() => {
+                try {
+                    const saved = JSON.parse(localStorage.getItem(ADMIN_REMEMBER_KEY) || 'null');
+                    if (saved?.username && saved?.password) {
+                        setLoginUser(saved.username);
+                        setLoginPass(saved.password);
+                        setRememberPassword(true);
+                    }
+                } catch (err) {
+                    console.warn('Admin credential restore failed', err);
+                }
+            }, []);
             
             const handleLogin = async () => {
                 if (!loginUser || !loginPass) {
@@ -1490,6 +1558,11 @@ const defaultSettings = {
                     const inputHash = await hashString(loginPass);
                     
                     if (loginUser === storedUser && inputHash === storedHash) {
+                        if (rememberPassword) {
+                            localStorage.setItem(ADMIN_REMEMBER_KEY, JSON.stringify({ username: loginUser, password: loginPass }));
+                        } else {
+                            localStorage.removeItem(ADMIN_REMEMBER_KEY);
+                        }
                         setAdminCreds({ username: storedUser });
                         setIsLoggedIn(true);
                     } else {
@@ -1516,6 +1589,7 @@ const defaultSettings = {
                                 placeholder="שם משתמש" 
                                 className="w-full p-3 mb-4 border rounded-xl text-center focus:ring-2 focus:ring-indigo-500 outline-none" 
                                 dir="ltr"
+                                autoComplete="username"
                                 value={loginUser}
                                 onChange={e => setLoginUser(e.target.value)}
                             />
@@ -1524,10 +1598,20 @@ const defaultSettings = {
                                 placeholder="סיסמה" 
                                 className="w-full p-3 mb-6 border rounded-xl text-center focus:ring-2 focus:ring-indigo-500 outline-none" 
                                 dir="ltr"
+                                autoComplete="current-password"
                                 value={loginPass}
                                 onKeyDown={e => e.key === 'Enter' && handleLogin()}
                                 onChange={e => setLoginPass(e.target.value)}
                             />
+                            <label className="flex items-center justify-center gap-2 mb-5 text-sm text-gray-700 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={rememberPassword}
+                                    onChange={e => setRememberPassword(e.target.checked)}
+                                    className="w-4 h-4 accent-indigo-600"
+                                />
+                                <span>זכור סיסמה במכשיר זה</span>
+                            </label>
                             <button 
                                 onClick={handleLogin} 
                                 disabled={isLoggingIn}
